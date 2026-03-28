@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Squat Demo — IMU Stick Figure</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d0d1a; color: #e0e0ff; font-family: 'Segoe UI', monospace; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  #topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px; background: #13132a;
+    border-bottom: 1px solid #2a2a50; flex-shrink: 0; flex-wrap: wrap;
+  }
+  #topbar h1 { font-size: 1rem; color: #7eb8ff; letter-spacing: 1px; }
+
+  select, button {
+    background: #1e1e40; color: #c0d8ff; border: 1px solid #3a3a70;
+    border-radius: 6px; padding: 6px 14px; font-size: 0.82rem; cursor: pointer;
+  }
+  button:hover { background: #2a2a5a; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #connectBtn { background: #1a3a6a; border-color: #4a7acc; }
+  #connectBtn.connected { background: #1a4a2a; border-color: #4acc7a; color: #7affb0; }
+  #disconnectBtn { background: #3a1a1a; border-color: #cc4a4a; color: #ffaaaa; }
+  #sessionBtn { background: #1a3a6a; border-color: #4a7acc; }
+  #sessionBtn.active { background: #4a1a4a; border-color: #cc4acc; color: #ffaaff; }
+
+  #status { font-size: 0.75rem; color: #888; min-width: 140px; text-align: right; margin-left: auto; }
+
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* Left: stick figure */
+  #figure-wrap { width: 340px; flex-shrink: 0; position: relative; border-right: 1px solid #2a2a50; display: flex; flex-direction: column; }
+  #figure-wrap canvas { width: 100%; flex: 1; }
+  #rep-display {
+    text-align: center; padding: 10px; background: #13132a; border-top: 1px solid #2a2a50;
+  }
+  #rep-count { font-size: 2.8rem; font-weight: bold; color: #7affb0; line-height: 1; }
+  #rep-label { font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 2px; }
+  #depth-label { font-size: 0.9rem; margin-top: 4px; color: #888; }
+  #lateral-warn { font-size: 0.85rem; margin-top: 4px; color: #0d0d1a; transition: color 0.2s; }
+  #lateral-warn.active { color: #ff6666; font-weight: bold; }
+
+  /* Center: charts */
+  #charts { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .chart-box { flex: 1; position: relative; border-bottom: 1px solid #2a2a50; min-height: 0; }
+  .chart-box:last-child { border-bottom: none; }
+  .chart-label {
+    position: absolute; top: 6px; left: 10px; font-size: 0.65rem;
+    color: #556; text-transform: uppercase; letter-spacing: 1px; z-index: 1;
+  }
+  .chart-box canvas { width: 100%; height: 100%; display: block; }
+
+  /* Right: data panel + rep log */
+  #panel {
+    width: 220px; background: #13132a; border-left: 1px solid #2a2a50;
+    display: flex; flex-direction: column; font-size: 0.78rem; overflow: hidden; flex-shrink: 0;
+  }
+  #data-section { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .section-title { color: #7eb8ff; font-size: 0.65rem; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; border-bottom: 1px solid #2a2a50; padding-bottom: 3px; }
+  .row { display: flex; justify-content: space-between; padding: 1px 0; }
+  .lbl { color: #888; }
+  .val { color: #b0ffcc; font-variant-numeric: tabular-nums; }
+  .val.gyro { color: #ffcca0; }
+  .val.angle { color: #c0b0ff; }
+
+  /* Rep log */
+  #log-section { flex: 1; overflow: hidden; display: flex; flex-direction: column; border-top: 1px solid #2a2a50; }
+  #log-section .section-title { padding: 8px 12px 4px; margin: 0; }
+  #log-wrap { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  #log-wrap table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+  #log-wrap th { color: #556; text-align: left; padding: 3px 4px; position: sticky; top: 0; background: #13132a; }
+  #log-wrap td { padding: 3px 4px; border-top: 1px solid #1a1a35; }
+  .flag-none { color: #4a4a6a; }
+  .flag-left { color: #ff8866; }
+  .flag-right { color: #ff8866; }
+
+  /* Session summary overlay */
+  #summary-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 100; justify-content: center; align-items: center;
+  }
+  #summary-overlay.show { display: flex; }
+  #summary-box {
+    background: #1a1a35; border: 1px solid #3a3a70; border-radius: 12px;
+    padding: 28px 36px; max-width: 400px; text-align: center;
+  }
+  #summary-box h2 { color: #7eb8ff; margin-bottom: 16px; font-size: 1.1rem; }
+  .sum-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #2a2a50; font-size: 0.85rem; }
+  .sum-row:last-child { border: none; }
+  .sum-lbl { color: #888; }
+  .sum-val { color: #b0ffcc; font-weight: bold; }
+  #summary-box button { margin-top: 18px; }
+
+  /* Overlay for not-connected state */
+  #overlay {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; pointer-events: none;
+  }
+  #overlay p { color: #444; font-size: 0.85rem; margin-top: 8px; }
+  #overlay .icon { font-size: 3rem; opacity: 0.3; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>&#x1F3CB; Squat Demo</h1>
+  <label style="font-size:0.8rem;color:#888">Baud:</label>
+  <select id="baudSel">
+    <option value="9600">9600</option>
+    <option value="38400" selected>38400</option>
+    <option value="57600">57600</option>
+    <option value="115200">115200</option>
+  </select>
+  <button id="connectBtn">&#9889; Connect Serial</button>
+  <button id="disconnectBtn" disabled>&#10005; Disconnect</button>
+  <button id="calibBtn" disabled>&#8635; Calibrate</button>
+  <button id="sessionBtn" disabled>&#9654; Start Session</button>
+  <div id="status">Not connected</div>
+</div>
+
+<div id="main">
+  <!-- Stick figure -->
+  <div id="figure-wrap">
+    <canvas id="figureCanvas"></canvas>
+    <div id="rep-display">
+      <div id="rep-label">Reps</div>
+      <div id="rep-count">0</div>
+      <div id="depth-label">—</div>
+      <div id="lateral-warn">—</div>
+    </div>
+    <div id="overlay">
+      <div class="icon">&#128225;</div>
+      <p>Connect your Arduino via USB<br>then click "Connect Serial"</p>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div id="charts">
+    <div class="chart-box">
+      <span class="chart-label">Vertical Accel (g)</span>
+      <canvas id="vertChart"></canvas>
+    </div>
+    <div class="chart-box">
+      <span class="chart-label">Lateral Accel (g)</span>
+      <canvas id="latChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Data panel + rep log -->
+  <div id="panel">
+    <div id="data-section">
+      <div>
+        <div class="section-title">Accelerometer (raw)</div>
+        <div class="row"><span class="lbl">aX</span><span class="val" id="v-ax">—</span></div>
+        <div class="row"><span class="lbl">aY</span><span class="val" id="v-ay">—</span></div>
+        <div class="row"><span class="lbl">aZ</span><span class="val" id="v-az">—</span></div>
+      </div>
+      <div>
+        <div class="section-title">Gyroscope (raw)</div>
+        <div class="row"><span class="lbl">gX</span><span class="val gyro" id="v-gx">—</span></div>
+        <div class="row"><span class="lbl">gY</span><span class="val gyro" id="v-gy">—</span></div>
+        <div class="row"><span class="lbl">gZ</span><span class="val gyro" id="v-gz">—</span></div>
+      </div>
+      <div>
+        <div class="section-title">Orientation</div>
+        <div class="row"><span class="lbl">Pitch</span><span class="val angle" id="v-pitch">—</span></div>
+        <div class="row"><span class="lbl">Roll</span><span class="val angle" id="v-roll">—</span></div>
+      </div>
+      <div>
+        <div class="section-title">Sample Rate</div>
+        <div class="row"><span class="lbl">Hz</span><span class="val" id="v-hz">—</span></div>
+      </div>
+    </div>
+    <div id="log-section">
+      <div class="section-title" style="padding:8px 12px 4px">Rep Log</div>
+      <div id="log-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Depth</th><th>Lateral</th><th>Mag</th></tr></thead>
+          <tbody id="log-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Session summary -->
+<div id="summary-overlay">
+  <div id="summary-box">
+    <h2>Session Summary</h2>
+    <div class="sum-row"><span class="sum-lbl">Total Reps</span><span class="sum-val" id="sum-reps">0</span></div>
+    <div class="sum-row"><span class="sum-lbl">Avg Depth</span><span class="sum-val" id="sum-depth">—</span></div>
+    <div class="sum-row"><span class="sum-lbl">Lateral Flags</span><span class="sum-val" id="sum-flags">0</span></div>
+    <div class="sum-row"><span class="sum-lbl">Max Lateral</span><span class="sum-val" id="sum-maxlat">—</span></div>
+    <div class="sum-row"><span class="sum-lbl">Duration</span><span class="sum-val" id="sum-dur">—</span></div>
+    <button id="sum-close">Close</button>
+  </div>
+</div>
+
+<script>
+// ─── MPU6050 PROFILE ──────────────────────────────────────────────────────────
+const ACCEL_SCALE = 16384.0; // ±2g
+const GYRO_SCALE  = 131.0;   // ±250°/s
+
+// ─── CONFIGURABLE PARAMETERS ──────────────────────────────────────────────────
+const VERT_LP_ALPHA     = 0.3;    // low-pass smoothing for vertical accel
+const TROUGH_THRESHOLD  = -0.25;  // g — qualifies as squat trough
+const PEAK_THRESHOLD    = -0.05;  // g — qualifies as return to standing
+const MIN_REP_INTERVAL  = 400;    // ms between consecutive troughs
+const LATERAL_THRESHOLD = 0.15;   // g — triggers imbalance flag
+const DEPTH_SHALLOW_MAX = 0.3;    // g magnitude boundary
+const DEPTH_PARALLEL_MAX= 0.5;
+const CALIB_FRAMES      = 80;
+const FIGURE_SMOOTH     = 0.12;   // lerp factor for stick figure
+
+// ─── COMPLEMENTARY FILTER ─────────────────────────────────────────────────────
+const ALPHA = 0.96;
+let roll = 0, pitch = 0;
+let lastTs = null;
+
+function updateFilter(ax, ay, az, gx, gy, gz) {
+  const now = performance.now();
+  const dt = lastTs ? Math.min((now - lastTs) / 1000, 0.1) : 0.01;
+  lastTs = now;
+
+  const axG = ax / ACCEL_SCALE, ayG = ay / ACCEL_SCALE, azG = az / ACCEL_SCALE;
+  const gxDs = gx / GYRO_SCALE, gyDs = gy / GYRO_SCALE;
+
+  const accelRoll  = Math.atan2(ayG, azG) * 180 / Math.PI;
+  const accelPitch = Math.atan2(-axG, Math.sqrt(ayG * ayG + azG * azG)) * 180 / Math.PI;
+
+  roll  = ALPHA * (roll  + gxDs * dt) + (1 - ALPHA) * accelRoll;
+  pitch = ALPHA * (pitch + gyDs * dt) + (1 - ALPHA) * accelPitch;
+
+  return { roll, pitch, axG, ayG, azG };
+}
+
+// ─── TWO-STEP CALIBRATION ─────────────────────────────────────────────────────
+// Step 1 — Stand still: averages accel to find gravity direction.
+// Step 2 — Move side to side: captures the dominant horizontal movement direction
+//          and locks it as the lateral axis. Forward = the remaining perpendicular.
+
+const CALIB_PHASE_GRAVITY = 1;
+const CALIB_PHASE_LATERAL = 2;
+const CALIB_LATERAL_FRAMES = 120; // ~2-3 seconds of side-to-side movement
+
+let calibPhase = 0, calibCount = 0, calibDone = false;
+let calibSumX = 0, calibSumY = 0, calibSumZ = 0;
+// For lateral phase: accumulate horizontal accel samples to find dominant direction
+let latCalibSamples = [];
+
+// Orientation basis (set after calibration)
+let gravUnit = [0, 0, 1];
+let latUnit  = [1, 0, 0];
+let fwdUnit  = [0, 1, 0];
+
+function resetCalib() {
+  calibPhase = CALIB_PHASE_GRAVITY;
+  calibCount = 0; calibDone = false;
+  calibSumX = calibSumY = calibSumZ = 0;
+  latCalibSamples = [];
+  filteredVert = 0; filteredLat = 0;
+  baselineVert = 0; baselineLat = 0;
+  setStatus('Step 1/2 — Stand still…');
+}
+
+function feedCalib(axG, ayG, azG) {
+  if (calibDone) return true;
+
+  if (calibPhase === CALIB_PHASE_GRAVITY) {
+    // ── Step 1: learn gravity ──
+    calibSumX += axG;
+    calibSumY += ayG;
+    calibSumZ += azG;
+    calibCount++;
+    const pct = Math.round(calibCount / CALIB_FRAMES * 100);
+    setStatus(`Step 1/2 — Stand still… ${pct}%`);
+
+    if (calibCount >= CALIB_FRAMES) {
+      const gx = calibSumX / CALIB_FRAMES;
+      const gy = calibSumY / CALIB_FRAMES;
+      const gz = calibSumZ / CALIB_FRAMES;
+      const mag = Math.sqrt(gx * gx + gy * gy + gz * gz);
+      gravUnit = [gx / mag, gy / mag, gz / mag];
+
+      // Move to step 2
+      calibPhase = CALIB_PHASE_LATERAL;
+      calibCount = 0;
+      setStatus('Step 2/2 — Move side to side…');
+    }
+    return false;
+  }
+
+  if (calibPhase === CALIB_PHASE_LATERAL) {
+    // ── Step 2: learn lateral direction from movement ──
+    // Remove gravity component to get horizontal-only acceleration
+    const accel = [axG, ayG, azG];
+    const gravComponent = dot3(accel, gravUnit);
+    const horiz = [
+      accel[0] - gravComponent * gravUnit[0],
+      accel[1] - gravComponent * gravUnit[1],
+      accel[2] - gravComponent * gravUnit[2]
+    ];
+    const horizMag = Math.sqrt(horiz[0]*horiz[0] + horiz[1]*horiz[1] + horiz[2]*horiz[2]);
+
+    // Only collect samples with meaningful horizontal movement (ignore noise)
+    if (horizMag > 0.05) {
+      latCalibSamples.push(horiz);
+    }
+
+    calibCount++;
+    const pct = Math.round(calibCount / CALIB_LATERAL_FRAMES * 100);
+    setStatus(`Step 2/2 — Move side to side… ${pct}%`);
+
+    if (calibCount >= CALIB_LATERAL_FRAMES) {
+      if (latCalibSamples.length > 10) {
+        // Find dominant horizontal direction via averaged absolute contributions
+        // (side-to-side movement flips sign, so we use covariance / PCA-lite)
+        // Simple approach: sum the outer products, take the largest eigenvector
+        // Even simpler: sum |component| weighted by magnitude — the axis with
+        // the most energy is the lateral axis.
+        let sx = 0, sy = 0, sz = 0;
+        for (const h of latCalibSamples) {
+          // Square each component to find dominant direction regardless of sign
+          sx += h[0] * h[0];
+          sy += h[1] * h[1];
+          sz += h[2] * h[2];
+        }
+        // The direction with the most energy is lateral
+        // Build a weighted average direction using signed samples
+        // (PCA first principal component via power iteration)
+        let dir = [sx, sy, sz]; // initial guess biased toward dominant axis
+        dir = normalize3(dir);
+        // One round of power iteration on the covariance matrix
+        for (let iter = 0; iter < 5; iter++) {
+          let nx = 0, ny = 0, nz = 0;
+          for (const h of latCalibSamples) {
+            const d = h[0]*dir[0] + h[1]*dir[1] + h[2]*dir[2];
+            nx += d * h[0];
+            ny += d * h[1];
+            nz += d * h[2];
+          }
+          dir = normalize3([nx, ny, nz]);
+        }
+
+        // Ensure it's perpendicular to gravity (Gram-Schmidt)
+        const dg = dot3(dir, gravUnit);
+        latUnit = normalize3([
+          dir[0] - dg * gravUnit[0],
+          dir[1] - dg * gravUnit[1],
+          dir[2] - dg * gravUnit[2]
+        ]);
+      } else {
+        // Not enough movement — fall back to arbitrary perpendicular
+        let ref = [0, 1, 0];
+        if (Math.abs(dot3(gravUnit, ref)) > 0.9) ref = [1, 0, 0];
+        latUnit = normalize3(cross3(gravUnit, ref));
+      }
+
+      fwdUnit = normalize3(cross3(latUnit, gravUnit));
+      calibDone = true;
+      setStatus('Calibration complete — receiving data…');
+    }
+    return calibDone;
+  }
+}
+
+// ─── VECTOR HELPERS ───────────────────────────────────────────────────────────
+function dot3(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+function cross3(a, b) {
+  return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+}
+function normalize3(v) {
+  const m = Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+  return m > 0 ? [v[0]/m, v[1]/m, v[2]/m] : [0,0,0];
+}
+
+// ─── SQUAT DETECTION STATE ────────────────────────────────────────────────────
+// Two-stage filter: slow baseline (HP) removes DC drift, then LP smooths noise.
+// Signal = LP( raw - baseline )  →  always returns to 0 when stationary.
+const BASELINE_ALPHA = 0.005; // very slow — tracks DC offset / gravity residual
+let baselineVert = 0, baselineLat = 0;
+let filteredVert = 0;       // final output: AC-coupled + smoothed
+let filteredLat  = 0;
+let prevFilteredVert = 0;
+let wasDescending = false;
+let troughDetected = false;
+let lastTroughTime = 0;
+let currentTroughMag = 0;   // deepest point in current rep
+let currentLatMax = 0;      // max |lateral| in current rep
+let currentLatDir = 0;      // sign of peak lateral
+
+let repCount = 0;
+const repLog = [];           // { depth, latFlag, latMag }
+
+// Session
+let sessionActive = false;
+let sessionStart = 0;
+
+// ─── CHART BUFFERS ────────────────────────────────────────────────────────────
+const CHART_LEN = 300;
+const vertBuf = new Float32Array(CHART_LEN);
+const latBuf  = new Float32Array(CHART_LEN);
+const vertMarkers = [];  // { idx, type:'peak'|'trough' }
+const latMarkers  = [];  // { idx, over:bool }
+let chartIdx = 0;
+
+function pushChart(vert, lat) {
+  // Shift left
+  vertBuf.copyWithin(0, 1);
+  latBuf.copyWithin(0, 1);
+  vertBuf[CHART_LEN - 1] = vert;
+  latBuf[CHART_LEN - 1]  = lat;
+  chartIdx++;
+
+  // Age markers
+  for (let i = vertMarkers.length - 1; i >= 0; i--) {
+    vertMarkers[i].idx--;
+    if (vertMarkers[i].idx < 0) vertMarkers.splice(i, 1);
+  }
+  for (let i = latMarkers.length - 1; i >= 0; i--) {
+    latMarkers[i].idx--;
+    if (latMarkers[i].idx < 0) latMarkers.splice(i, 1);
+  }
+}
+
+// ─── STICK FIGURE STATE ───────────────────────────────────────────────────────
+// Current smoothed values for drawing
+let dispKneeAngle = 170;  // degrees (170 = standing)
+let dispTorsoAngle = 0;   // degrees forward lean
+let dispLateralShift = 0;  // pixels
+let dispFormColor = [255, 255, 255]; // RGB
+
+// Target values (updated each frame, smoothed toward)
+let targetKneeAngle = 170;
+let targetTorsoAngle = 0;
+let targetLateralShift = 0;
+let targetFormColor = [255, 255, 255];
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ─── PROCESS EACH SAMPLE ─────────────────────────────────────────────────────
+function processSample(ax, ay, az, gx, gy, gz) {
+  const { roll: r, pitch: p, axG, ayG, azG } = updateFilter(ax, ay, az, gx, gy, gz);
+
+  // Calibration: feed raw g-scaled values to learn gravity direction
+  if (!calibDone) {
+    feedCalib(axG, ayG, azG);
+    return;
+  }
+
+  // Project accel onto fixed calibrated basis (orthonormal, set once during calibration)
+  const accel = [axG, ayG, azG];
+  const vertRaw = dot3(accel, gravUnit) - 1.0; // subtract 1g (gravity)
+  const latRaw  = dot3(accel, latUnit);         // perpendicular to gravity → no vertical bleed
+
+  // Stage 1: slow-moving baseline absorbs any DC drift / residual gravity error
+  baselineVert = baselineVert * (1 - BASELINE_ALPHA) + vertRaw * BASELINE_ALPHA;
+  baselineLat  = baselineLat  * (1 - BASELINE_ALPHA) + latRaw  * BASELINE_ALPHA;
+
+  // Stage 2: subtract baseline (high-pass), then smooth with LP filter
+  const vertAC = vertRaw - baselineVert;
+  const latAC  = latRaw  - baselineLat;
+  filteredVert = filteredVert * (1 - VERT_LP_ALPHA) + vertAC * VERT_LP_ALPHA;
+  filteredLat  = filteredLat  * (1 - VERT_LP_ALPHA) + latAC  * VERT_LP_ALPHA;
+
+  pushChart(filteredVert, filteredLat);
+
+  // ── Squat peak/trough detection ──
+  const now = performance.now();
+  const descending = filteredVert < prevFilteredVert;
+
+  if (sessionActive) {
+    // Track deepest point and max lateral within a rep
+    if (descending && filteredVert < currentTroughMag) {
+      currentTroughMag = filteredVert;
+    }
+    if (Math.abs(filteredLat) > Math.abs(currentLatMax)) {
+      currentLatMax = filteredLat;
+      currentLatDir = Math.sign(filteredLat);
+    }
+
+    // Trough: was descending, now rising, below threshold, debounce
+    if (wasDescending && !descending && filteredVert < TROUGH_THRESHOLD
+        && (now - lastTroughTime) > MIN_REP_INTERVAL) {
+      troughDetected = true;
+      lastTroughTime = now;
+      vertMarkers.push({ idx: CHART_LEN - 1, type: 'trough' });
+    }
+
+    // Peak: was rising, now descending (or stable), above peak threshold, after a trough
+    if (!wasDescending && descending && filteredVert > PEAK_THRESHOLD && troughDetected) {
+      // Count the rep
+      repCount++;
+      const depth = classifyDepth(Math.abs(currentTroughMag));
+      const latFlag = Math.abs(currentLatMax) > LATERAL_THRESHOLD;
+      const latDir = latFlag ? (currentLatDir > 0 ? 'R' : 'L') : '—';
+      repLog.push({ depth, latFlag, latDir, latMag: Math.abs(currentLatMax).toFixed(3) });
+      addLogRow(repCount, depth, latDir, repLog[repLog.length - 1].latMag);
+
+      vertMarkers.push({ idx: CHART_LEN - 1, type: 'peak' });
+
+      // Reset per-rep tracking
+      troughDetected = false;
+      currentTroughMag = 0;
+      currentLatMax = 0;
+      currentLatDir = 0;
+    }
+  }
+
+  wasDescending = descending;
+  prevFilteredVert = filteredVert;
+
+  // ── Update stick figure targets ──
+  // Derive torso lean from forward-axis component vs gravity (fixed basis)
+  const fwdG = dot3(accel, fwdUnit);
+  const tiltDeg = Math.atan2(Math.abs(fwdG), dot3(accel, gravUnit)) * 180 / Math.PI;
+  targetTorsoAngle = Math.max(0, Math.min(60, tiltDeg));
+
+  // Knee angle: map torso tilt to knee bend (0° tilt → 170° knee, 45° tilt → 60° knee)
+  const pitchNorm = Math.max(0, Math.min(45, tiltDeg)) / 45; // 0..1
+  targetKneeAngle = 170 - pitchNorm * 110; // 170 → 60
+
+  // Lateral shift from filtered lateral accel (amplify for visibility)
+  targetLateralShift = filteredLat * 120;
+
+  // Form color
+  if (Math.abs(filteredLat) > LATERAL_THRESHOLD) {
+    targetFormColor = [255, 80, 80]; // red
+  } else if (targetKneeAngle > 140) {
+    targetFormColor = [255, 255, 255]; // white (standing)
+  } else if (targetKneeAngle > 110) {
+    targetFormColor = [255, 220, 80]; // yellow (shallow)
+  } else {
+    targetFormColor = [80, 255, 140]; // green (good depth)
+  }
+
+  // ── Update UI text ──
+  document.getElementById('v-ax').textContent = ax;
+  document.getElementById('v-ay').textContent = ay;
+  document.getElementById('v-az').textContent = az;
+  document.getElementById('v-gx').textContent = gx;
+  document.getElementById('v-gy').textContent = gy;
+  document.getElementById('v-gz').textContent = gz;
+  document.getElementById('v-pitch').textContent = p.toFixed(1) + '°';
+  document.getElementById('v-roll').textContent  = r.toFixed(1) + '°';
+  document.getElementById('rep-count').textContent = repCount;
+
+  // Depth label (live during session, last rep otherwise)
+  if (sessionActive && pitchNorm > 0.15) {
+    document.getElementById('depth-label').textContent = classifyDepth(pitchNorm * 0.6);
+  } else {
+    document.getElementById('depth-label').textContent = repLog.length ? repLog[repLog.length - 1].depth : '—';
+  }
+
+  // Lateral warning
+  const latEl = document.getElementById('lateral-warn');
+  if (Math.abs(filteredLat) > LATERAL_THRESHOLD) {
+    const dir = filteredLat > 0 ? '&#x27A1; Leaning RIGHT' : '&#x2B05; Leaning LEFT';
+    latEl.innerHTML = dir;
+    latEl.classList.add('active');
+  } else {
+    latEl.textContent = 'Centered';
+    latEl.classList.remove('active');
+  }
+
+  // Hz
+  frameCount++;
+  const elapsed = performance.now() - hzTs;
+  if (elapsed >= 500) {
+    document.getElementById('v-hz').textContent = (frameCount / (elapsed / 1000)).toFixed(1);
+    frameCount = 0; hzTs = performance.now();
+  }
+}
+
+function classifyDepth(mag) {
+  if (mag < DEPTH_SHALLOW_MAX) return 'Shallow';
+  if (mag < DEPTH_PARALLEL_MAX) return 'Parallel';
+  return 'Deep';
+}
+
+function addLogRow(num, depth, latDir, latMag) {
+  const tbody = document.getElementById('log-body');
+  const tr = document.createElement('tr');
+  const flagClass = latDir === 'L' ? 'flag-left' : latDir === 'R' ? 'flag-right' : 'flag-none';
+  tr.innerHTML = `<td>${num}</td><td>${depth}</td><td class="${flagClass}">${latDir}</td><td>${latMag}</td>`;
+  tbody.appendChild(tr);
+  tr.scrollIntoView({ block: 'end' });
+}
+
+// ─── STICK FIGURE DRAWING ─────────────────────────────────────────────────────
+const figCanvas = document.getElementById('figureCanvas');
+const figCtx = figCanvas.getContext('2d');
+
+function drawFigure() {
+  const W = figCanvas.width, H = figCanvas.height;
+  figCtx.clearRect(0, 0, W, H);
+
+  // Smooth toward targets
+  dispKneeAngle    = lerp(dispKneeAngle, targetKneeAngle, FIGURE_SMOOTH);
+  dispTorsoAngle   = lerp(dispTorsoAngle, targetTorsoAngle, FIGURE_SMOOTH);
+  dispLateralShift = lerp(dispLateralShift, targetLateralShift, FIGURE_SMOOTH);
+  for (let i = 0; i < 3; i++) dispFormColor[i] = lerp(dispFormColor[i], targetFormColor[i], FIGURE_SMOOTH);
+
+  const color = `rgb(${Math.round(dispFormColor[0])},${Math.round(dispFormColor[1])},${Math.round(dispFormColor[2])})`;
+  const jointColor = color;
+
+  // Dimensions (scaled to canvas)
+  const scale = Math.min(W, H) / 400;
+  const footY = H - 40 * scale;            // ground level
+  const lowerLeg = 70 * scale;
+  const upperLeg = 70 * scale;
+  const torsoLen = 80 * scale;
+  const headR = 14 * scale;
+  const upperArm = 45 * scale;
+  const lowerArm = 40 * scale;
+  const hipWidth = 20 * scale;
+  const shoulderWidth = 24 * scale;
+  const lineW = 3.5 * scale;
+  const jointR = 5 * scale;
+
+  const cx = W / 2 + dispLateralShift * scale / 2;
+
+  // Knee angle → geometry
+  // kneeAngle: 170 (straight) → 60 (deep bend)
+  const kneeRad = dispKneeAngle * Math.PI / 180;
+  // Lower leg goes up from ankle
+  const lowerLegAngle = Math.PI / 2 + (Math.PI - kneeRad) * 0.55;
+  // Upper leg angle derived from knee bend
+  const upperLegAngle = lowerLegAngle - (Math.PI - kneeRad);
+
+  // ── Compute joint positions (side view, facing right) ──
+  // Left leg (viewer's left)
+  const lAnkle = { x: cx - hipWidth, y: footY };
+  const lKnee  = {
+    x: lAnkle.x + Math.cos(lowerLegAngle) * lowerLeg * 0.3,
+    y: lAnkle.y - Math.sin(lowerLegAngle) * lowerLeg
+  };
+  // Right leg
+  const rAnkle = { x: cx + hipWidth, y: footY };
+  const rKnee  = {
+    x: rAnkle.x + Math.cos(lowerLegAngle) * lowerLeg * 0.3,
+    y: rAnkle.y - Math.sin(lowerLegAngle) * lowerLeg
+  };
+
+  // Hip: midpoint above knees, adjusted by upper leg
+  const hipMid = {
+    x: cx + Math.cos(upperLegAngle) * upperLeg * 0.15,
+    y: (lKnee.y + rKnee.y) / 2 - Math.sin(Math.PI / 2 + (Math.PI - kneeRad) * 0.45) * upperLeg
+  };
+  const lHip = { x: hipMid.x - hipWidth, y: hipMid.y };
+  const rHip = { x: hipMid.x + hipWidth, y: hipMid.y };
+
+  // Torso: leans forward from hip
+  const torsoRad = dispTorsoAngle * Math.PI / 180;
+  const neck = {
+    x: hipMid.x + Math.sin(torsoRad) * torsoLen * 0.3,
+    y: hipMid.y - Math.cos(torsoRad) * torsoLen
+  };
+  const lShoulder = { x: neck.x - shoulderWidth, y: neck.y };
+  const rShoulder = { x: neck.x + shoulderWidth, y: neck.y };
+
+  // Head
+  const head = {
+    x: neck.x + Math.sin(torsoRad) * (headR + 6 * scale),
+    y: neck.y - Math.cos(torsoRad) * (headR + 6 * scale)
+  };
+
+  // Arms: hang down and slightly forward
+  const armHang = Math.PI / 2 + torsoRad * 0.4;
+  const lElbow = { x: lShoulder.x - Math.cos(armHang) * upperArm * 0.3, y: lShoulder.y + Math.sin(armHang) * upperArm };
+  const rElbow = { x: rShoulder.x + Math.cos(armHang) * upperArm * 0.3, y: rShoulder.y + Math.sin(armHang) * upperArm };
+  const lWrist = { x: lElbow.x - Math.cos(armHang) * lowerArm * 0.2, y: lElbow.y + Math.sin(armHang) * lowerArm * 0.7 };
+  const rWrist = { x: rElbow.x + Math.cos(armHang) * lowerArm * 0.2, y: rElbow.y + Math.sin(armHang) * lowerArm * 0.7 };
+
+  // ── Draw ──
+  figCtx.lineCap = 'round';
+  figCtx.lineJoin = 'round';
+  figCtx.lineWidth = lineW;
+  figCtx.strokeStyle = color;
+  figCtx.fillStyle = jointColor;
+
+  function drawSeg(a, b) {
+    figCtx.beginPath(); figCtx.moveTo(a.x, a.y); figCtx.lineTo(b.x, b.y); figCtx.stroke();
+  }
+  function drawJoint(p, r) {
+    figCtx.beginPath(); figCtx.arc(p.x, p.y, r || jointR, 0, Math.PI * 2); figCtx.fill();
+  }
+
+  // Ground line
+  figCtx.strokeStyle = '#2a2a50';
+  figCtx.lineWidth = 1;
+  figCtx.beginPath(); figCtx.moveTo(20, footY + 10); figCtx.lineTo(W - 20, footY + 10); figCtx.stroke();
+  figCtx.strokeStyle = color;
+  figCtx.lineWidth = lineW;
+
+  // Legs
+  drawSeg(lAnkle, lKnee); drawSeg(lKnee, lHip);
+  drawSeg(rAnkle, rKnee); drawSeg(rKnee, rHip);
+  // Torso
+  drawSeg(hipMid, neck);
+  // Arms
+  drawSeg(lShoulder, lElbow); drawSeg(lElbow, lWrist);
+  drawSeg(rShoulder, rElbow); drawSeg(rElbow, rWrist);
+
+  // Joints
+  drawJoint(lAnkle); drawJoint(rAnkle);
+  drawJoint(lKnee); drawJoint(rKnee);
+  drawJoint(lHip); drawJoint(rHip);
+  drawJoint(hipMid);
+  drawJoint(lShoulder); drawJoint(rShoulder);
+  drawJoint(lElbow); drawJoint(rElbow);
+  drawJoint(neck);
+
+  // Head
+  figCtx.beginPath();
+  figCtx.arc(head.x, head.y, headR, 0, Math.PI * 2);
+  figCtx.fillStyle = '#0d0d1a';
+  figCtx.fill();
+  figCtx.strokeStyle = color;
+  figCtx.lineWidth = lineW * 0.8;
+  figCtx.stroke();
+  figCtx.fillStyle = jointColor;
+
+  // Sensor indicator on torso
+  const sensorPos = {
+    x: (hipMid.x + neck.x) / 2,
+    y: (hipMid.y + neck.y) / 2
+  };
+  figCtx.fillStyle = '#4a8aff';
+  figCtx.beginPath(); figCtx.arc(sensorPos.x, sensorPos.y, 4 * scale, 0, Math.PI * 2); figCtx.fill();
+  figCtx.fillStyle = jointColor;
+}
+
+// ─── CHART DRAWING ────────────────────────────────────────────────────────────
+const vertCanvas = document.getElementById('vertChart');
+const latCanvas  = document.getElementById('latChart');
+const vertCtx = vertCanvas.getContext('2d');
+const latCtx  = latCanvas.getContext('2d');
+
+function drawChart(ctx, buf, W, H, range, threshLines, markers, markerColors) {
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid
+  ctx.strokeStyle = '#1a1a35';
+  ctx.lineWidth = 1;
+  const gridLines = 5;
+  for (let i = 0; i <= gridLines; i++) {
+    const y = (i / gridLines) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  // Zero line
+  const zeroY = H / 2 - (0 / range) * (H / 2);
+  ctx.strokeStyle = '#333355';
+  ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(W, zeroY); ctx.stroke();
+
+  // Threshold lines
+  if (threshLines) {
+    ctx.setLineDash([4, 4]);
+    for (const tl of threshLines) {
+      const ty = H / 2 - (tl.val / range) * (H / 2);
+      ctx.strokeStyle = tl.color;
+      ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(W, ty); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  // Signal line
+  ctx.strokeStyle = '#4acc7a';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < CHART_LEN; i++) {
+    const x = (i / (CHART_LEN - 1)) * W;
+    const y = H / 2 - (buf[i] / range) * (H / 2);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Fill area where lateral exceeds threshold
+  if (threshLines && threshLines.length >= 2) {
+    ctx.fillStyle = 'rgba(255,70,70,0.1)';
+    for (let i = 0; i < CHART_LEN; i++) {
+      if (Math.abs(buf[i]) > LATERAL_THRESHOLD) {
+        const x = (i / (CHART_LEN - 1)) * W;
+        const bw = W / CHART_LEN + 1;
+        ctx.fillRect(x, 0, bw, H);
+      }
+    }
+  }
+
+  // Markers
+  if (markers) {
+    for (const m of markers) {
+      const x = (m.idx / (CHART_LEN - 1)) * W;
+      const y = H / 2 - (buf[m.idx] / range) * (H / 2);
+      ctx.fillStyle = m.type === 'peak' ? '#4acc7a' : '#ff4466';
+      ctx.beginPath();
+      if (m.type === 'peak') {
+        ctx.moveTo(x, y - 8); ctx.lineTo(x - 5, y); ctx.lineTo(x + 5, y);
+      } else {
+        ctx.moveTo(x, y + 8); ctx.lineTo(x - 5, y); ctx.lineTo(x + 5, y);
+      }
+      ctx.fill();
+    }
+  }
+}
+
+// ─── RESIZE HANDLER ───────────────────────────────────────────────────────────
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+
+  // Figure canvas
+  const fw = figCanvas.parentElement.clientWidth;
+  const fh = figCanvas.clientHeight || figCanvas.parentElement.clientHeight - document.getElementById('rep-display').offsetHeight;
+  figCanvas.width = fw * dpr;
+  figCanvas.height = fh * dpr;
+  figCtx.scale(dpr, dpr);
+  figCanvas.style.width = fw + 'px';
+  figCanvas.style.height = fh + 'px';
+
+  // Chart canvases
+  [vertCanvas, latCanvas].forEach(c => {
+    const parent = c.parentElement;
+    const w = parent.clientWidth;
+    const h = parent.clientHeight;
+    c.width = w * dpr;
+    c.height = h * dpr;
+    c.getContext('2d').scale(dpr, dpr);
+    c.style.width = w + 'px';
+    c.style.height = h + 'px';
+  });
+}
+
+// ─── ANIMATION LOOP ───────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Resize if needed (cheap check)
+  if (figCanvas.width === 0) resize();
+
+  const fw = parseInt(figCanvas.style.width) || 300;
+  const fh = parseInt(figCanvas.style.height) || 400;
+  figCtx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+  drawFigure();
+
+  const vw = parseInt(vertCanvas.style.width) || 300;
+  const vh = parseInt(vertCanvas.style.height) || 150;
+  const dpr = window.devicePixelRatio || 1;
+  vertCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawChart(vertCtx, vertBuf, vw, vh, 0.8,
+    [{ val: TROUGH_THRESHOLD, color: '#ff446666' }, { val: PEAK_THRESHOLD, color: '#4acc7a66' }],
+    vertMarkers);
+
+  const lw = parseInt(latCanvas.style.width) || 300;
+  const lh = parseInt(latCanvas.style.height) || 150;
+  latCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawChart(latCtx, latBuf, lw, lh, 0.5,
+    [{ val: LATERAL_THRESHOLD, color: '#ff446644' }, { val: -LATERAL_THRESHOLD, color: '#ff446644' }],
+    null);
+}
+
+resize();
+window.addEventListener('resize', resize);
+requestAnimationFrame(animate);
+
+// ─── SERIAL ───────────────────────────────────────────────────────────────────
+let port, reader, connected = false;
+let buf = '';
+let frameCount = 0, hzTs = performance.now();
+
+function parseLine(line) {
+  if (!line.startsWith('a/g:')) return;
+  const parts = line.split('\t');
+  if (parts.length < 7) return;
+  const [ax, ay, az, gx, gy, gz] = parts.slice(1).map(Number);
+  if (parts.slice(1).some(isNaN)) return;
+  processSample(ax, ay, az, gx, gy, gz);
+}
+
+async function readLoop() {
+  const dec = new TextDecoder();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value);
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        parseLine(buf.slice(0, nl).trim());
+        buf = buf.slice(nl + 1);
+      }
+    }
+  } catch(e) { /* port closed */ }
+}
+
+// ─── UI WIRING ────────────────────────────────────────────────────────────────
+document.getElementById('connectBtn').onclick = async () => {
+  if (!('serial' in navigator)) {
+    setStatus('Web Serial not supported. Use Chrome/Edge.', true);
+    return;
+  }
+  try {
+    const baud = parseInt(document.getElementById('baudSel').value);
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: baud });
+    reader = port.readable.getReader();
+    connected = true;
+    lastTs = null;
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('connectBtn').classList.add('connected');
+    document.getElementById('connectBtn').textContent = '✓ Connected';
+    document.getElementById('connectBtn').disabled = true;
+    document.getElementById('disconnectBtn').disabled = false;
+    document.getElementById('calibBtn').disabled = false;
+    document.getElementById('sessionBtn').disabled = false;
+    resetCalib();
+    readLoop();
+  } catch(e) { setStatus('Connection failed: ' + e.message, true); }
+};
+
+document.getElementById('disconnectBtn').onclick = async () => {
+  if (sessionActive) endSession();
+  connected = false;
+  try { reader && await reader.cancel(); } catch(e){}
+  try { port && await port.close(); } catch(e){}
+  document.getElementById('connectBtn').classList.remove('connected');
+  document.getElementById('connectBtn').textContent = '⚡ Connect Serial';
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('disconnectBtn').disabled = true;
+  document.getElementById('calibBtn').disabled = true;
+  document.getElementById('sessionBtn').disabled = true;
+  setStatus('Disconnected');
+  document.getElementById('overlay').style.display = '';
+  lastTs = null;
+};
+
+document.getElementById('calibBtn').onclick = () => {
+  roll = 0; pitch = 0;
+  filteredVert = 0; filteredLat = 0;
+  resetCalib();
+};
+
+document.getElementById('sessionBtn').onclick = () => {
+  if (!sessionActive) {
+    sessionActive = true;
+    sessionStart = performance.now();
+    repCount = 0;
+    repLog.length = 0;
+    document.getElementById('log-body').innerHTML = '';
+    document.getElementById('rep-count').textContent = '0';
+    troughDetected = false;
+    currentTroughMag = 0;
+    currentLatMax = 0;
+    document.getElementById('sessionBtn').textContent = '⏹ End Session';
+    document.getElementById('sessionBtn').classList.add('active');
+  } else {
+    endSession();
+  }
+};
+
+function endSession() {
+  sessionActive = false;
+  document.getElementById('sessionBtn').textContent = '▶ Start Session';
+  document.getElementById('sessionBtn').classList.remove('active');
+  showSummary();
+}
+
+function showSummary() {
+  const dur = ((performance.now() - sessionStart) / 1000).toFixed(0);
+  const mins = Math.floor(dur / 60);
+  const secs = dur % 60;
+  document.getElementById('sum-reps').textContent = repCount;
+
+  // Average depth
+  if (repLog.length) {
+    const counts = { Shallow: 0, Parallel: 0, Deep: 0 };
+    let maxLat = 0;
+    let flagCount = 0;
+    for (const r of repLog) {
+      counts[r.depth]++;
+      if (r.latFlag) flagCount++;
+      const mag = parseFloat(r.latMag);
+      if (mag > maxLat) maxLat = mag;
+    }
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    document.getElementById('sum-depth').textContent = best;
+    document.getElementById('sum-flags').textContent = flagCount;
+    document.getElementById('sum-maxlat').textContent = maxLat.toFixed(3) + ' g';
+  } else {
+    document.getElementById('sum-depth').textContent = '—';
+    document.getElementById('sum-flags').textContent = '0';
+    document.getElementById('sum-maxlat').textContent = '—';
+  }
+  document.getElementById('sum-dur').textContent = `${mins}m ${String(secs).padStart(2, '0')}s`;
+  document.getElementById('summary-overlay').classList.add('show');
+}
+
+document.getElementById('sum-close').onclick = () => {
+  document.getElementById('summary-overlay').classList.remove('show');
+};
+
+function setStatus(msg, err = false) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.style.color = err ? '#ff6666' : '#88cc88';
+}
+</script>
+</body>
+</html>
