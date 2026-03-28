@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Squat Demo — IMU Stick Figure</title>
+<title>Smarter Fabrics Demo</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0d0d1a; color: #e0e0ff; font-family: 'Segoe UI', monospace; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -30,16 +30,37 @@
 
   #main { display: flex; flex: 1; overflow: hidden; }
 
-  /* Left: stick figure */
-  #figure-wrap { width: 340px; flex-shrink: 0; position: relative; border-right: 1px solid #2a2a50; display: flex; flex-direction: column; }
-  #figure-wrap canvas { width: 100%; flex: 1; }
-  #rep-display {
-    text-align: center; padding: 10px; background: #13132a; border-top: 1px solid #2a2a50;
+  /* Left: live gauges panel */
+  #gauge-wrap {
+    width: 380px; flex-shrink: 0; position: relative; border-right: 1px solid #2a2a50;
+    display: flex; flex-direction: column; background: #0d0d1a; overflow: hidden;
   }
-  #rep-count { font-size: 2.8rem; font-weight: bold; color: #7affb0; line-height: 1; }
-  #rep-label { font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 2px; }
-  #depth-label { font-size: 0.9rem; margin-top: 4px; color: #888; }
-  #lateral-warn { font-size: 0.85rem; margin-top: 4px; color: #0d0d1a; transition: color 0.2s; }
+
+  /* Rep counter — hero element */
+  #rep-hero {
+    text-align: center; padding: 24px 16px 12px; flex-shrink: 0;
+  }
+  #rep-count { font-size: 5.5rem; font-weight: 900; color: #7affb0; line-height: 1; font-variant-numeric: tabular-nums; }
+  #rep-label { font-size: 0.7rem; color: #556; text-transform: uppercase; letter-spacing: 3px; margin-bottom: 4px; }
+
+  /* Form badge */
+  #form-badge {
+    display: inline-block; padding: 6px 24px; border-radius: 20px; font-size: 1rem;
+    font-weight: bold; letter-spacing: 1px; margin-top: 8px; transition: all 0.2s;
+  }
+  #form-badge.good { background: #1a3a2a; border: 2px solid #4acc7a; color: #7affb0; }
+  #form-badge.bad { background: #3a1a1a; border: 2px solid #ff4466; color: #ff8888; }
+  #form-badge.idle { background: #1a1a2a; border: 2px solid #3a3a70; color: #556; }
+
+  /* Gauge canvases */
+  #gauges { flex: 1; display: flex; flex-direction: column; padding: 8px 16px; gap: 8px; min-height: 0; }
+  .gauge-section { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .gauge-title { font-size: 0.65rem; color: #556; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px; text-align: center; }
+  .gauge-canvas { flex: 1; width: 100%; }
+
+  /* Depth label */
+  #depth-label { font-size: 0.85rem; color: #888; text-align: center; margin-top: 2px; }
+  #lateral-warn { font-size: 0.85rem; margin-top: 2px; color: #0d0d1a; transition: color 0.2s; text-align: center; }
   #lateral-warn.active { color: #ff6666; font-weight: bold; }
 
   /* Center: charts */
@@ -75,6 +96,9 @@
   .flag-none { color: #4a4a6a; }
   .flag-left { color: #ff8866; }
   .flag-right { color: #ff8866; }
+  .form-good { color: #4acc7a; }
+  .form-bad { color: #ff4466; font-weight: bold; }
+  .form-bad-reason { color: #ff8866; font-size: 0.6rem; display: block; }
 
   /* Session summary overlay */
   #summary-overlay {
@@ -84,13 +108,23 @@
   #summary-overlay.show { display: flex; }
   #summary-box {
     background: #1a1a35; border: 1px solid #3a3a70; border-radius: 12px;
-    padding: 28px 36px; max-width: 400px; text-align: center;
+    padding: 28px 36px; max-width: 520px; text-align: center;
   }
   #summary-box h2 { color: #7eb8ff; margin-bottom: 16px; font-size: 1.1rem; }
   .sum-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #2a2a50; font-size: 0.85rem; }
   .sum-row:last-child { border: none; }
   .sum-lbl { color: #888; }
   .sum-val { color: #b0ffcc; font-weight: bold; }
+  #sum-coaching {
+    margin-top: 18px; padding: 16px; background: #0d0d1a; border-radius: 10px;
+    border: 1px solid #2a2a50; text-align: left; font-size: 0.82rem; line-height: 1.7;
+  }
+  #sum-coaching h3 { color: #7eb8ff; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px; text-align: center; }
+  #sum-coaching .pos { color: #4acc7a; }
+  #sum-coaching .neg { color: #ff8866; }
+  #sum-coaching .goal { color: #c0b0ff; font-style: italic; margin-top: 10px; display: block; text-align: center; }
+  #sum-coaching ul { margin: 6px 0 6px 18px; padding: 0; }
+  #sum-coaching li { margin-bottom: 2px; }
   #summary-box button { margin-top: 18px; }
 
   /* Overlay for not-connected state */
@@ -100,12 +134,30 @@
   }
   #overlay p { color: #444; font-size: 0.85rem; margin-top: 8px; }
   #overlay .icon { font-size: 3rem; opacity: 0.3; }
+
+  /* Calibration overlay */
+  #calib-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+    z-index: 200; justify-content: center; align-items: center;
+  }
+  #calib-overlay.show { display: flex; }
+  #calib-box {
+    background: #13132a; border: 2px solid #3a3a70; border-radius: 16px;
+    padding: 36px 48px; max-width: 480px; text-align: center;
+  }
+  #calib-box h2 { color: #7eb8ff; margin-bottom: 8px; font-size: 1.2rem; }
+  #calib-step { color: #556; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 16px; }
+  #calib-instruction { color: #c0d8ff; font-size: 1rem; line-height: 1.6; margin-bottom: 20px; min-height: 60px; }
+  #calib-progress-wrap { background: #1e1e40; border-radius: 8px; height: 12px; overflow: hidden; margin-bottom: 12px; }
+  #calib-progress-bar { height: 100%; background: #4acc7a; border-radius: 8px; transition: width 0.1s; width: 0%; }
+  #calib-countdown { color: #888; font-size: 0.8rem; min-height: 20px; }
+  #calib-status-icon { font-size: 2.5rem; margin-bottom: 12px; }
 </style>
 </head>
 <body>
 
 <div id="topbar">
-  <h1>&#x1F3CB; Squat Demo</h1>
+  <h1>&#x1F3CB; Smarter Fabrics Demo</h1>
   <label style="font-size:0.8rem;color:#888">Baud:</label>
   <select id="baudSel">
     <option value="9600">9600</option>
@@ -121,14 +173,24 @@
 </div>
 
 <div id="main">
-  <!-- Stick figure -->
-  <div id="figure-wrap">
-    <canvas id="figureCanvas"></canvas>
-    <div id="rep-display">
+  <!-- Live gauges -->
+  <div id="gauge-wrap">
+    <div id="rep-hero">
       <div id="rep-label">Reps</div>
       <div id="rep-count">0</div>
-      <div id="depth-label">—</div>
-      <div id="lateral-warn">—</div>
+      <div id="form-badge" class="idle">READY</div>
+    </div>
+    <div id="gauges">
+      <div class="gauge-section">
+        <div class="gauge-title">Squat Depth</div>
+        <canvas class="gauge-canvas" id="tiltGauge"></canvas>
+        <div id="depth-label">—</div>
+      </div>
+      <div class="gauge-section">
+        <div class="gauge-title">Left / Right Balance</div>
+        <canvas class="gauge-canvas" id="balanceGauge"></canvas>
+        <div id="lateral-warn">—</div>
+      </div>
     </div>
     <div id="overlay">
       <div class="icon">&#128225;</div>
@@ -139,7 +201,7 @@
   <!-- Charts -->
   <div id="charts">
     <div class="chart-box">
-      <span class="chart-label">Vertical Accel (g)</span>
+      <span class="chart-label">Tilt from Upright (°)</span>
       <canvas id="vertChart"></canvas>
     </div>
     <div class="chart-box">
@@ -165,6 +227,7 @@
       </div>
       <div>
         <div class="section-title">Orientation</div>
+        <div class="row"><span class="lbl">Tilt</span><span class="val angle" id="v-tilt">—</span></div>
         <div class="row"><span class="lbl">Pitch</span><span class="val angle" id="v-pitch">—</span></div>
         <div class="row"><span class="lbl">Roll</span><span class="val angle" id="v-roll">—</span></div>
       </div>
@@ -177,11 +240,23 @@
       <div class="section-title" style="padding:8px 12px 4px">Rep Log</div>
       <div id="log-wrap">
         <table>
-          <thead><tr><th>#</th><th>Depth</th><th>Lateral</th><th>Mag</th></tr></thead>
+          <thead><tr><th>#</th><th>Depth</th><th>Lat</th><th>Form</th></tr></thead>
           <tbody id="log-body"></tbody>
         </table>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Calibration overlay -->
+<div id="calib-overlay">
+  <div id="calib-box">
+    <div id="calib-status-icon"></div>
+    <div id="calib-step">Step 1 of 3</div>
+    <h2 id="calib-title">Calibration</h2>
+    <div id="calib-instruction"></div>
+    <div id="calib-progress-wrap"><div id="calib-progress-bar"></div></div>
+    <div id="calib-countdown"></div>
   </div>
 </div>
 
@@ -190,10 +265,14 @@
   <div id="summary-box">
     <h2>Session Summary</h2>
     <div class="sum-row"><span class="sum-lbl">Total Reps</span><span class="sum-val" id="sum-reps">0</span></div>
+    <div class="sum-row"><span class="sum-lbl">Good Reps</span><span class="sum-val" id="sum-good" style="color:#4acc7a">0</span></div>
+    <div class="sum-row"><span class="sum-lbl">Bad Reps</span><span class="sum-val" id="sum-bad" style="color:#ff4466">0</span></div>
     <div class="sum-row"><span class="sum-lbl">Avg Depth</span><span class="sum-val" id="sum-depth">—</span></div>
     <div class="sum-row"><span class="sum-lbl">Lateral Flags</span><span class="sum-val" id="sum-flags">0</span></div>
     <div class="sum-row"><span class="sum-lbl">Max Lateral</span><span class="sum-val" id="sum-maxlat">—</span></div>
+    <div class="sum-row"><span class="sum-lbl">Max Lean</span><span class="sum-val" id="sum-maxlean">—</span></div>
     <div class="sum-row"><span class="sum-lbl">Duration</span><span class="sum-val" id="sum-dur">—</span></div>
+    <div id="sum-coaching"></div>
     <button id="sum-close">Close</button>
   </div>
 </div>
@@ -204,15 +283,9 @@ const ACCEL_SCALE = 16384.0; // ±2g
 const GYRO_SCALE  = 131.0;   // ±250°/s
 
 // ─── CONFIGURABLE PARAMETERS ──────────────────────────────────────────────────
-const VERT_LP_ALPHA     = 0.3;    // low-pass smoothing for vertical accel
-const TROUGH_THRESHOLD  = -0.25;  // g — qualifies as squat trough
-const PEAK_THRESHOLD    = -0.05;  // g — qualifies as return to standing
-const MIN_REP_INTERVAL  = 400;    // ms between consecutive troughs
-const LATERAL_THRESHOLD = 0.15;   // g — triggers imbalance flag
-const DEPTH_SHALLOW_MAX = 0.3;    // g magnitude boundary
-const DEPTH_PARALLEL_MAX= 0.5;
-const CALIB_FRAMES      = 80;
-const FIGURE_SMOOTH     = 0.12;   // lerp factor for stick figure
+const VERT_LP_ALPHA     = 0.3;    // low-pass smoothing for accel charts
+const LATERAL_THRESHOLD = 0.18;   // g — lateral imbalance flag
+const MAX_TILT_THRESHOLD = 45;    // degrees — excessive forward lean flag
 
 // ─── COMPLEMENTARY FILTER ─────────────────────────────────────────────────────
 const ALPHA = 0.96;
@@ -236,65 +309,120 @@ function updateFilter(ax, ay, az, gx, gy, gz) {
   return { roll, pitch, axG, ayG, azG };
 }
 
-// ─── TWO-STEP CALIBRATION ─────────────────────────────────────────────────────
-// Step 1 — Stand still: averages accel to find gravity direction.
-// Step 2 — Move side to side: captures the dominant horizontal movement direction
-//          and locks it as the lateral axis. Forward = the remaining perpendicular.
+// ─── THREE-STEP CALIBRATION ───────────────────────────────────────────────────
+// Step 1 — Stand still (4s): averages accel to find gravity + baseline pitch/roll.
+// Step 2 — Pause (3s countdown): gives user time to prepare for lateral movement.
+// Step 3 — Move side to side (4s): captures dominant horizontal direction as lateral axis.
+// Each step has detailed on-screen instructions via the calibration overlay.
 
-const CALIB_PHASE_GRAVITY = 1;
-const CALIB_PHASE_LATERAL = 2;
-const CALIB_LATERAL_FRAMES = 120; // ~2-3 seconds of side-to-side movement
+const CALIB_PHASE_GRAVITY  = 1;
+const CALIB_PHASE_PAUSE    = 2;
+const CALIB_PHASE_LATERAL  = 3;
+const CALIB_GRAVITY_FRAMES = 200;  // ~4s at 50Hz
+const CALIB_LATERAL_FRAMES = 200;  // ~4s at 50Hz
+const CALIB_PAUSE_MS       = 3000; // 3 second countdown between steps
 
 let calibPhase = 0, calibCount = 0, calibDone = false;
 let calibSumX = 0, calibSumY = 0, calibSumZ = 0;
-// For lateral phase: accumulate horizontal accel samples to find dominant direction
+let calibPauseStart = 0;
 let latCalibSamples = [];
 
 // Orientation basis (set after calibration)
 let gravUnit = [0, 0, 1];
 let latUnit  = [1, 0, 0];
 let fwdUnit  = [0, 1, 0];
+// Baseline pitch/roll captured at end of gravity phase (standing upright)
+let calibPitch = 0, calibRoll = 0;
+
+// Calibration overlay UI helpers
+function showCalibOverlay() { document.getElementById('calib-overlay').classList.add('show'); }
+function hideCalibOverlay() { document.getElementById('calib-overlay').classList.remove('show'); }
+function updateCalibUI(step, totalSteps, icon, title, instruction, pct, countdown) {
+  document.getElementById('calib-step').textContent = `Step ${step} of ${totalSteps}`;
+  document.getElementById('calib-status-icon').textContent = icon;
+  document.getElementById('calib-title').textContent = title;
+  document.getElementById('calib-instruction').innerHTML = instruction;
+  document.getElementById('calib-progress-bar').style.width = pct + '%';
+  document.getElementById('calib-countdown').textContent = countdown || '';
+}
 
 function resetCalib() {
   calibPhase = CALIB_PHASE_GRAVITY;
   calibCount = 0; calibDone = false;
   calibSumX = calibSumY = calibSumZ = 0;
+  calibPauseStart = 0;
   latCalibSamples = [];
   filteredVert = 0; filteredLat = 0;
   baselineVert = 0; baselineLat = 0;
-  setStatus('Step 1/2 — Stand still…');
+  showCalibOverlay();
+  updateCalibUI(1, 3, '🧍', 'Stand Completely Still',
+    'Attach the sensor to your <b>chest</b> (sternum area).<br>' +
+    'Stand upright with your arms at your sides.<br>' +
+    'Stay as still as possible — do not move or sway.<br>' +
+    '<span style="color:#888">This captures the direction of gravity.</span>',
+    0, 'Sampling…');
+  setStatus('Calibrating — Step 1/3');
 }
 
 function feedCalib(axG, ayG, azG) {
   if (calibDone) return true;
 
+  // ── Step 1: Stand still — learn gravity ──
   if (calibPhase === CALIB_PHASE_GRAVITY) {
-    // ── Step 1: learn gravity ──
     calibSumX += axG;
     calibSumY += ayG;
     calibSumZ += azG;
     calibCount++;
-    const pct = Math.round(calibCount / CALIB_FRAMES * 100);
-    setStatus(`Step 1/2 — Stand still… ${pct}%`);
+    const pct = Math.round(calibCount / CALIB_GRAVITY_FRAMES * 100);
+    updateCalibUI(1, 3, '🧍', 'Stand Completely Still',
+      'Attach the sensor to your <b>chest</b> (sternum area).<br>' +
+      'Stand upright with your arms at your sides.<br>' +
+      'Stay as still as possible — do not move or sway.<br>' +
+      '<span style="color:#888">This captures the direction of gravity.</span>',
+      pct, `Sampling… ${pct}%`);
 
-    if (calibCount >= CALIB_FRAMES) {
-      const gx = calibSumX / CALIB_FRAMES;
-      const gy = calibSumY / CALIB_FRAMES;
-      const gz = calibSumZ / CALIB_FRAMES;
+    if (calibCount >= CALIB_GRAVITY_FRAMES) {
+      // Compute gravity direction
+      const gx = calibSumX / CALIB_GRAVITY_FRAMES;
+      const gy = calibSumY / CALIB_GRAVITY_FRAMES;
+      const gz = calibSumZ / CALIB_GRAVITY_FRAMES;
       const mag = Math.sqrt(gx * gx + gy * gy + gz * gz);
       gravUnit = [gx / mag, gy / mag, gz / mag];
 
-      // Move to step 2
-      calibPhase = CALIB_PHASE_LATERAL;
-      calibCount = 0;
-      setStatus('Step 2/2 — Move side to side…');
+      // Capture baseline orientation while still standing upright
+      calibPitch = pitch;
+      calibRoll  = roll;
+
+      // Move to pause
+      calibPhase = CALIB_PHASE_PAUSE;
+      calibPauseStart = performance.now();
+      setStatus('Calibrating — get ready…');
     }
     return false;
   }
 
+  // ── Step 2: Pause — countdown before lateral movement ──
+  if (calibPhase === CALIB_PHASE_PAUSE) {
+    const elapsed = performance.now() - calibPauseStart;
+    const remaining = Math.max(0, Math.ceil((CALIB_PAUSE_MS - elapsed) / 1000));
+    const pct = Math.min(100, (elapsed / CALIB_PAUSE_MS) * 100);
+    updateCalibUI(2, 3, '👈👉', 'Get Ready to Move Side to Side',
+      'In a moment, <b>sway your upper body left and right</b>.<br>' +
+      'Keep your feet planted — only move your torso.<br>' +
+      'Use smooth, steady movements (about 2-3 sways).<br>' +
+      '<span style="color:#888">This teaches the sensor which direction is left/right.</span>',
+      pct, remaining > 0 ? `Starting in ${remaining}…` : 'Go!');
+
+    if (elapsed >= CALIB_PAUSE_MS) {
+      calibPhase = CALIB_PHASE_LATERAL;
+      calibCount = 0;
+      setStatus('Calibrating — Step 3/3');
+    }
+    return false;
+  }
+
+  // ── Step 3: Move side to side — learn lateral direction ──
   if (calibPhase === CALIB_PHASE_LATERAL) {
-    // ── Step 2: learn lateral direction from movement ──
-    // Remove gravity component to get horizontal-only acceleration
     const accel = [axG, ayG, azG];
     const gravComponent = dot3(accel, gravUnit);
     const horiz = [
@@ -304,47 +432,39 @@ function feedCalib(axG, ayG, azG) {
     ];
     const horizMag = Math.sqrt(horiz[0]*horiz[0] + horiz[1]*horiz[1] + horiz[2]*horiz[2]);
 
-    // Only collect samples with meaningful horizontal movement (ignore noise)
     if (horizMag > 0.05) {
       latCalibSamples.push(horiz);
     }
 
     calibCount++;
     const pct = Math.round(calibCount / CALIB_LATERAL_FRAMES * 100);
-    setStatus(`Step 2/2 — Move side to side… ${pct}%`);
+    const samplesMsg = latCalibSamples.length > 10
+      ? `${latCalibSamples.length} movement samples captured`
+      : 'Waiting for movement…';
+    updateCalibUI(3, 3, '👈👉', 'Sway Left and Right Now',
+      'Move your <b>upper body side to side</b> steadily.<br>' +
+      'Keep feet planted, sway from the hips.<br>' +
+      '2-3 full left-right-left cycles is ideal.<br>' +
+      '<span style="color:#888">' + samplesMsg + '</span>',
+      pct, `Recording… ${pct}%`);
 
     if (calibCount >= CALIB_LATERAL_FRAMES) {
       if (latCalibSamples.length > 10) {
-        // Find dominant horizontal direction via averaged absolute contributions
-        // (side-to-side movement flips sign, so we use covariance / PCA-lite)
-        // Simple approach: sum the outer products, take the largest eigenvector
-        // Even simpler: sum |component| weighted by magnitude — the axis with
-        // the most energy is the lateral axis.
+        // PCA via power iteration to find dominant horizontal direction
         let sx = 0, sy = 0, sz = 0;
         for (const h of latCalibSamples) {
-          // Square each component to find dominant direction regardless of sign
-          sx += h[0] * h[0];
-          sy += h[1] * h[1];
-          sz += h[2] * h[2];
+          sx += h[0] * h[0]; sy += h[1] * h[1]; sz += h[2] * h[2];
         }
-        // The direction with the most energy is lateral
-        // Build a weighted average direction using signed samples
-        // (PCA first principal component via power iteration)
-        let dir = [sx, sy, sz]; // initial guess biased toward dominant axis
-        dir = normalize3(dir);
-        // One round of power iteration on the covariance matrix
-        for (let iter = 0; iter < 5; iter++) {
+        let dir = normalize3([sx, sy, sz]);
+        for (let iter = 0; iter < 10; iter++) {
           let nx = 0, ny = 0, nz = 0;
           for (const h of latCalibSamples) {
             const d = h[0]*dir[0] + h[1]*dir[1] + h[2]*dir[2];
-            nx += d * h[0];
-            ny += d * h[1];
-            nz += d * h[2];
+            nx += d * h[0]; ny += d * h[1]; nz += d * h[2];
           }
           dir = normalize3([nx, ny, nz]);
         }
-
-        // Ensure it's perpendicular to gravity (Gram-Schmidt)
+        // Gram-Schmidt: ensure perpendicular to gravity
         const dg = dot3(dir, gravUnit);
         latUnit = normalize3([
           dir[0] - dg * gravUnit[0],
@@ -352,7 +472,7 @@ function feedCalib(axG, ayG, azG) {
           dir[2] - dg * gravUnit[2]
         ]);
       } else {
-        // Not enough movement — fall back to arbitrary perpendicular
+        // Fallback if not enough movement detected
         let ref = [0, 1, 0];
         if (Math.abs(dot3(gravUnit, ref)) > 0.9) ref = [1, 0, 0];
         latUnit = normalize3(cross3(gravUnit, ref));
@@ -360,7 +480,9 @@ function feedCalib(axG, ayG, azG) {
 
       fwdUnit = normalize3(cross3(latUnit, gravUnit));
       calibDone = true;
-      setStatus('Calibration complete — receiving data…');
+      hideCalibOverlay();
+      document.getElementById('sessionBtn').disabled = false;
+      setStatus('Calibration complete — ready');
     }
     return calibDone;
   }
@@ -377,19 +499,25 @@ function normalize3(v) {
 }
 
 // ─── SQUAT DETECTION STATE ────────────────────────────────────────────────────
-// Two-stage filter: slow baseline (HP) removes DC drift, then LP smooths noise.
-// Signal = LP( raw - baseline )  →  always returns to 0 when stationary.
-const BASELINE_ALPHA = 0.005; // very slow — tracks DC offset / gravity residual
+// Tilt-based hysteresis state machine:
+//   STANDING ──(tilt > ENTER_THRESHOLD)──► IN_SQUAT
+//   IN_SQUAT ──(tilt < EXIT_THRESHOLD && held long enough)──► STANDING [+1 rep]
+// Tilt = total angle from calibrated upright. On a real human chest sensor,
+// standing ≈ 0-8°, squat ≈ 25-50°, normal sway ≈ 5-12°.
+const SQUAT_ENTER_THRESHOLD = 22;  // degrees — tilt above this = in squat
+const SQUAT_EXIT_THRESHOLD  = 12;  // degrees — tilt below this = standing again
+const MIN_SQUAT_DURATION    = 500; // ms — must be in squat at least this long to count
+let inSquat = false;
+let squatEnteredAt = 0;            // timestamp when entered squat
+let maxTiltInRep = 0;              // track deepest tilt per rep for depth classification
+let currentLatMax = 0;             // max |lateral| in current rep
+let currentLatDir = 0;             // sign of peak lateral
+
+// Accel filtering (for charts + lateral detection)
+const BASELINE_ALPHA = 0.005;
 let baselineVert = 0, baselineLat = 0;
-let filteredVert = 0;       // final output: AC-coupled + smoothed
+let filteredVert = 0;
 let filteredLat  = 0;
-let prevFilteredVert = 0;
-let wasDescending = false;
-let troughDetected = false;
-let lastTroughTime = 0;
-let currentTroughMag = 0;   // deepest point in current rep
-let currentLatMax = 0;      // max |lateral| in current rep
-let currentLatDir = 0;      // sign of peak lateral
 
 let repCount = 0;
 const repLog = [];           // { depth, latFlag, latMag }
@@ -425,18 +553,10 @@ function pushChart(vert, lat) {
   }
 }
 
-// ─── STICK FIGURE STATE ───────────────────────────────────────────────────────
-// Current smoothed values for drawing
-let dispKneeAngle = 170;  // degrees (170 = standing)
-let dispTorsoAngle = 0;   // degrees forward lean
-let dispLateralShift = 0;  // pixels
-let dispFormColor = [255, 255, 255]; // RGB
-
-// Target values (updated each frame, smoothed toward)
-let targetKneeAngle = 170;
-let targetTorsoAngle = 0;
-let targetLateralShift = 0;
-let targetFormColor = [255, 255, 255];
+// ─── GAUGE STATE ──────────────────────────────────────────────────────────────
+let dispTilt = 0;           // smoothed tilt for arc gauge
+let dispLateral = 0;        // smoothed lateral for balance bar
+let dispFormGood = true;    // current form status
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
@@ -465,75 +585,99 @@ function processSample(ax, ay, az, gx, gy, gz) {
   filteredVert = filteredVert * (1 - VERT_LP_ALPHA) + vertAC * VERT_LP_ALPHA;
   filteredLat  = filteredLat  * (1 - VERT_LP_ALPHA) + latAC  * VERT_LP_ALPHA;
 
-  pushChart(filteredVert, filteredLat);
+  // ── Torso tilt from complementary filter (stable during movement) ──
+  // The complementary filter fuses gyro + accel, so it stays accurate even
+  // during fast squat movements where raw accel is unreliable. We measure
+  // the change from the calibrated upright position.
+  let relPitch = p - calibPitch;
+  let relRoll  = r - calibRoll;
+  let tiltDeg  = Math.sqrt(relPitch * relPitch + relRoll * relRoll);
 
-  // ── Squat peak/trough detection ──
-  const now = performance.now();
-  const descending = filteredVert < prevFilteredVert;
+  // Drift correction: when tilt is low (likely standing), slowly pull the
+  // baseline toward the current filter values. This prevents gyro drift from
+  // making tilt hover above 0 and blocking exit detection.
+  if (tiltDeg < 15 && !inSquat) {
+    const DRIFT_ALPHA = 0.002;
+    calibPitch += (p - calibPitch) * DRIFT_ALPHA;
+    calibRoll  += (r - calibRoll)  * DRIFT_ALPHA;
+    // Recompute with corrected baseline
+    relPitch = p - calibPitch;
+    relRoll  = r - calibRoll;
+    tiltDeg  = Math.sqrt(relPitch * relPitch + relRoll * relRoll);
+  }
 
+  // Top chart: tilt angle (what drives rep detection — user can see it)
+  pushChart(tiltDeg, filteredLat);
+
+  // ── Pitch-based rep detection (hysteresis state machine) ──
   if (sessionActive) {
-    // Track deepest point and max lateral within a rep
-    if (descending && filteredVert < currentTroughMag) {
-      currentTroughMag = filteredVert;
-    }
+    // Track max lateral within current rep
     if (Math.abs(filteredLat) > Math.abs(currentLatMax)) {
       currentLatMax = filteredLat;
       currentLatDir = Math.sign(filteredLat);
     }
 
-    // Trough: was descending, now rising, below threshold, debounce
-    if (wasDescending && !descending && filteredVert < TROUGH_THRESHOLD
-        && (now - lastTroughTime) > MIN_REP_INTERVAL) {
-      troughDetected = true;
-      lastTroughTime = now;
+    const now = performance.now();
+
+    if (!inSquat && tiltDeg >= SQUAT_ENTER_THRESHOLD) {
+      // Entered squat
+      inSquat = true;
+      squatEnteredAt = now;
+      maxTiltInRep = tiltDeg;
       vertMarkers.push({ idx: CHART_LEN - 1, type: 'trough' });
-    }
+    } else if (inSquat) {
+      // Track deepest point while in squat
+      if (tiltDeg > maxTiltInRep) maxTiltInRep = tiltDeg;
 
-    // Peak: was rising, now descending (or stable), above peak threshold, after a trough
-    if (!wasDescending && descending && filteredVert > PEAK_THRESHOLD && troughDetected) {
-      // Count the rep
-      repCount++;
-      const depth = classifyDepth(Math.abs(currentTroughMag));
-      const latFlag = Math.abs(currentLatMax) > LATERAL_THRESHOLD;
-      const latDir = latFlag ? (currentLatDir > 0 ? 'R' : 'L') : '—';
-      repLog.push({ depth, latFlag, latDir, latMag: Math.abs(currentLatMax).toFixed(3) });
-      addLogRow(repCount, depth, latDir, repLog[repLog.length - 1].latMag);
+      if (tiltDeg <= SQUAT_EXIT_THRESHOLD) {
+        // Returned to standing — only count if held long enough
+        inSquat = false;
+        if ((now - squatEnteredAt) < MIN_SQUAT_DURATION) {
+          // Too brief — discard (probably noise or casual movement)
+          maxTiltInRep = 0;
+          currentLatMax = 0;
+          currentLatDir = 0;
+        } else {
+          repCount++;
+          const depth = classifyTilt(maxTiltInRep);
+          const latFlag = Math.abs(currentLatMax) > LATERAL_THRESHOLD;
+          const latDir = latFlag ? (currentLatDir > 0 ? 'R' : 'L') : '—';
+          const tiltFlag = maxTiltInRep > MAX_TILT_THRESHOLD;
 
-      vertMarkers.push({ idx: CHART_LEN - 1, type: 'peak' });
+          // Determine form: bad if lateral imbalance OR excessive forward lean
+          const reasons = [];
+          if (latFlag) reasons.push('lateral ' + latDir + ' ' + Math.abs(currentLatMax).toFixed(2) + 'g');
+          if (tiltFlag) reasons.push('lean ' + maxTiltInRep.toFixed(0) + '°');
+          const isBadRep = reasons.length > 0;
 
-      // Reset per-rep tracking
-      troughDetected = false;
-      currentTroughMag = 0;
-      currentLatMax = 0;
-      currentLatDir = 0;
+          repLog.push({ depth, latFlag, latDir, latMag: Math.abs(currentLatMax).toFixed(3), tiltFlag, maxTilt: maxTiltInRep, bad: isBadRep, reasons });
+          addLogRow(repCount, depth, latDir, isBadRep, reasons);
+
+          vertMarkers.push({ idx: CHART_LEN - 1, type: 'peak' });
+
+          // Reset per-rep tracking
+          maxTiltInRep = 0;
+          currentLatMax = 0;
+          currentLatDir = 0;
+        }
+      }
     }
   }
 
-  wasDescending = descending;
-  prevFilteredVert = filteredVert;
+  // ── Update gauge targets ──
+  dispTilt    = lerp(dispTilt, tiltDeg, 0.15);
+  dispLateral = lerp(dispLateral, filteredLat, 0.15);
+  dispFormGood = !(Math.abs(filteredLat) > LATERAL_THRESHOLD || tiltDeg > MAX_TILT_THRESHOLD);
 
-  // ── Update stick figure targets ──
-  // Derive torso lean from forward-axis component vs gravity (fixed basis)
-  const fwdG = dot3(accel, fwdUnit);
-  const tiltDeg = Math.atan2(Math.abs(fwdG), dot3(accel, gravUnit)) * 180 / Math.PI;
-  targetTorsoAngle = Math.max(0, Math.min(60, tiltDeg));
-
-  // Knee angle: map torso tilt to knee bend (0° tilt → 170° knee, 45° tilt → 60° knee)
-  const pitchNorm = Math.max(0, Math.min(45, tiltDeg)) / 45; // 0..1
-  targetKneeAngle = 170 - pitchNorm * 110; // 170 → 60
-
-  // Lateral shift from filtered lateral accel (amplify for visibility)
-  targetLateralShift = filteredLat * 120;
-
-  // Form color
-  if (Math.abs(filteredLat) > LATERAL_THRESHOLD) {
-    targetFormColor = [255, 80, 80]; // red
-  } else if (targetKneeAngle > 140) {
-    targetFormColor = [255, 255, 255]; // white (standing)
-  } else if (targetKneeAngle > 110) {
-    targetFormColor = [255, 220, 80]; // yellow (shallow)
+  // Form badge
+  const badge = document.getElementById('form-badge');
+  if (!sessionActive) {
+    badge.className = 'idle'; badge.textContent = 'READY';
+  } else if (inSquat) {
+    if (dispFormGood) { badge.className = 'good'; badge.textContent = 'GOOD FORM'; }
+    else { badge.className = 'bad'; badge.textContent = 'BAD FORM'; }
   } else {
-    targetFormColor = [80, 255, 140]; // green (good depth)
+    badge.className = 'good'; badge.textContent = 'STANDING';
   }
 
   // ── Update UI text ──
@@ -543,13 +687,14 @@ function processSample(ax, ay, az, gx, gy, gz) {
   document.getElementById('v-gx').textContent = gx;
   document.getElementById('v-gy').textContent = gy;
   document.getElementById('v-gz').textContent = gz;
+  document.getElementById('v-tilt').textContent  = tiltDeg.toFixed(1) + '°';
   document.getElementById('v-pitch').textContent = p.toFixed(1) + '°';
   document.getElementById('v-roll').textContent  = r.toFixed(1) + '°';
   document.getElementById('rep-count').textContent = repCount;
 
-  // Depth label (live during session, last rep otherwise)
-  if (sessionActive && pitchNorm > 0.15) {
-    document.getElementById('depth-label').textContent = classifyDepth(pitchNorm * 0.6);
+  // Depth label — live while in squat, last rep otherwise
+  if (sessionActive && inSquat) {
+    document.getElementById('depth-label').textContent = classifyTilt(tiltDeg);
   } else {
     document.getElementById('depth-label').textContent = repLog.length ? repLog[repLog.length - 1].depth : '—';
   }
@@ -574,163 +719,194 @@ function processSample(ax, ay, az, gx, gy, gz) {
   }
 }
 
-function classifyDepth(mag) {
-  if (mag < DEPTH_SHALLOW_MAX) return 'Shallow';
-  if (mag < DEPTH_PARALLEL_MAX) return 'Parallel';
+function classifyTilt(deg) {
+  if (deg < 28) return 'Shallow';
+  if (deg < 40) return 'Parallel';
   return 'Deep';
 }
 
-function addLogRow(num, depth, latDir, latMag) {
+function addLogRow(num, depth, latDir, isBad, reasons) {
   const tbody = document.getElementById('log-body');
   const tr = document.createElement('tr');
   const flagClass = latDir === 'L' ? 'flag-left' : latDir === 'R' ? 'flag-right' : 'flag-none';
-  tr.innerHTML = `<td>${num}</td><td>${depth}</td><td class="${flagClass}">${latDir}</td><td>${latMag}</td>`;
+  const formClass = isBad ? 'form-bad' : 'form-good';
+  const formLabel = isBad ? 'BAD' : 'Good';
+  const reasonStr = isBad ? `<span class="form-bad-reason">${reasons.join(', ')}</span>` : '';
+  tr.innerHTML = `<td>${num}</td><td>${depth}</td><td class="${flagClass}">${latDir}</td><td class="${formClass}">${formLabel}${reasonStr}</td>`;
   tbody.appendChild(tr);
   tr.scrollIntoView({ block: 'end' });
 }
 
-// ─── STICK FIGURE DRAWING ─────────────────────────────────────────────────────
-const figCanvas = document.getElementById('figureCanvas');
-const figCtx = figCanvas.getContext('2d');
+// ─── GAUGE DRAWING ────────────────────────────────────────────────────────────
+const tiltCanvas = document.getElementById('tiltGauge');
+const tiltCtx = tiltCanvas.getContext('2d');
+const balCanvas = document.getElementById('balanceGauge');
+const balCtx = balCanvas.getContext('2d');
 
-function drawFigure() {
-  const W = figCanvas.width, H = figCanvas.height;
-  figCtx.clearRect(0, 0, W, H);
+// ── Tilt arc gauge: 0° at left, 60° at right, needle shows current tilt ──
+function drawTiltGauge(ctx, W, H) {
+  ctx.clearRect(0, 0, W, H);
 
-  // Smooth toward targets
-  dispKneeAngle    = lerp(dispKneeAngle, targetKneeAngle, FIGURE_SMOOTH);
-  dispTorsoAngle   = lerp(dispTorsoAngle, targetTorsoAngle, FIGURE_SMOOTH);
-  dispLateralShift = lerp(dispLateralShift, targetLateralShift, FIGURE_SMOOTH);
-  for (let i = 0; i < 3; i++) dispFormColor[i] = lerp(dispFormColor[i], targetFormColor[i], FIGURE_SMOOTH);
+  const cx = W / 2;
+  const cy = H * 0.75;
+  const radius = Math.min(W * 0.4, H * 0.6);
+  const arcW = radius * 0.16;
+  const maxDeg = 60;
 
-  const color = `rgb(${Math.round(dispFormColor[0])},${Math.round(dispFormColor[1])},${Math.round(dispFormColor[2])})`;
-  const jointColor = color;
+  // Arc goes from PI (left) to 0 (right), mapping 0° to 60°
+  const startA = Math.PI;
+  const endA = 0;
 
-  // Dimensions (scaled to canvas)
-  const scale = Math.min(W, H) / 400;
-  const footY = H - 40 * scale;            // ground level
-  const lowerLeg = 70 * scale;
-  const upperLeg = 70 * scale;
-  const torsoLen = 80 * scale;
-  const headR = 14 * scale;
-  const upperArm = 45 * scale;
-  const lowerArm = 40 * scale;
-  const hipWidth = 20 * scale;
-  const shoulderWidth = 24 * scale;
-  const lineW = 3.5 * scale;
-  const jointR = 5 * scale;
+  // Background track
+  ctx.lineCap = 'round';
+  ctx.lineWidth = arcW;
+  ctx.strokeStyle = '#1a1a35';
+  ctx.beginPath(); ctx.arc(cx, cy, radius, startA, endA, false); ctx.stroke();
 
-  const cx = W / 2 + dispLateralShift * scale / 2;
+  // Color zones: green (0-22°), yellow (22-45°), red (45-60°)
+  const exitFrac = SQUAT_EXIT_THRESHOLD / maxDeg;
+  const enterFrac = SQUAT_ENTER_THRESHOLD / maxDeg;
+  const badFrac = MAX_TILT_THRESHOLD / maxDeg;
 
-  // Knee angle → geometry
-  // kneeAngle: 170 (straight) → 60 (deep bend)
-  const kneeRad = dispKneeAngle * Math.PI / 180;
-  // Lower leg goes up from ankle
-  const lowerLegAngle = Math.PI / 2 + (Math.PI - kneeRad) * 0.55;
-  // Upper leg angle derived from knee bend
-  const upperLegAngle = lowerLegAngle - (Math.PI - kneeRad);
+  // Green zone (0 to enter)
+  ctx.strokeStyle = '#1a3a2a';
+  ctx.beginPath(); ctx.arc(cx, cy, radius, startA, startA - enterFrac * Math.PI, true); ctx.stroke();
+  // Yellow zone (enter to bad)
+  ctx.strokeStyle = '#3a3a1a';
+  ctx.beginPath(); ctx.arc(cx, cy, radius, startA - enterFrac * Math.PI, startA - badFrac * Math.PI, true); ctx.stroke();
+  // Red zone (bad to 60)
+  ctx.strokeStyle = '#3a1a1a';
+  ctx.beginPath(); ctx.arc(cx, cy, radius, startA - badFrac * Math.PI, endA, false); ctx.stroke();
 
-  // ── Compute joint positions (side view, facing right) ──
-  // Left leg (viewer's left)
-  const lAnkle = { x: cx - hipWidth, y: footY };
-  const lKnee  = {
-    x: lAnkle.x + Math.cos(lowerLegAngle) * lowerLeg * 0.3,
-    y: lAnkle.y - Math.sin(lowerLegAngle) * lowerLeg
-  };
-  // Right leg
-  const rAnkle = { x: cx + hipWidth, y: footY };
-  const rKnee  = {
-    x: rAnkle.x + Math.cos(lowerLegAngle) * lowerLeg * 0.3,
-    y: rAnkle.y - Math.sin(lowerLegAngle) * lowerLeg
-  };
+  // Filled arc showing current tilt
+  const tiltFrac = Math.min(dispTilt, maxDeg) / maxDeg;
+  const tiltAngle = startA - tiltFrac * Math.PI;
+  let fillColor;
+  if (dispTilt > MAX_TILT_THRESHOLD) fillColor = '#ff4466';
+  else if (dispTilt > SQUAT_ENTER_THRESHOLD) fillColor = '#4acc7a';
+  else fillColor = '#335';
 
-  // Hip: midpoint above knees, adjusted by upper leg
-  const hipMid = {
-    x: cx + Math.cos(upperLegAngle) * upperLeg * 0.15,
-    y: (lKnee.y + rKnee.y) / 2 - Math.sin(Math.PI / 2 + (Math.PI - kneeRad) * 0.45) * upperLeg
-  };
-  const lHip = { x: hipMid.x - hipWidth, y: hipMid.y };
-  const rHip = { x: hipMid.x + hipWidth, y: hipMid.y };
-
-  // Torso: leans forward from hip
-  const torsoRad = dispTorsoAngle * Math.PI / 180;
-  const neck = {
-    x: hipMid.x + Math.sin(torsoRad) * torsoLen * 0.3,
-    y: hipMid.y - Math.cos(torsoRad) * torsoLen
-  };
-  const lShoulder = { x: neck.x - shoulderWidth, y: neck.y };
-  const rShoulder = { x: neck.x + shoulderWidth, y: neck.y };
-
-  // Head
-  const head = {
-    x: neck.x + Math.sin(torsoRad) * (headR + 6 * scale),
-    y: neck.y - Math.cos(torsoRad) * (headR + 6 * scale)
-  };
-
-  // Arms: hang down and slightly forward
-  const armHang = Math.PI / 2 + torsoRad * 0.4;
-  const lElbow = { x: lShoulder.x - Math.cos(armHang) * upperArm * 0.3, y: lShoulder.y + Math.sin(armHang) * upperArm };
-  const rElbow = { x: rShoulder.x + Math.cos(armHang) * upperArm * 0.3, y: rShoulder.y + Math.sin(armHang) * upperArm };
-  const lWrist = { x: lElbow.x - Math.cos(armHang) * lowerArm * 0.2, y: lElbow.y + Math.sin(armHang) * lowerArm * 0.7 };
-  const rWrist = { x: rElbow.x + Math.cos(armHang) * lowerArm * 0.2, y: rElbow.y + Math.sin(armHang) * lowerArm * 0.7 };
-
-  // ── Draw ──
-  figCtx.lineCap = 'round';
-  figCtx.lineJoin = 'round';
-  figCtx.lineWidth = lineW;
-  figCtx.strokeStyle = color;
-  figCtx.fillStyle = jointColor;
-
-  function drawSeg(a, b) {
-    figCtx.beginPath(); figCtx.moveTo(a.x, a.y); figCtx.lineTo(b.x, b.y); figCtx.stroke();
-  }
-  function drawJoint(p, r) {
-    figCtx.beginPath(); figCtx.arc(p.x, p.y, r || jointR, 0, Math.PI * 2); figCtx.fill();
+  ctx.lineWidth = arcW * 0.7;
+  ctx.strokeStyle = fillColor;
+  if (tiltFrac > 0.005) {
+    ctx.beginPath(); ctx.arc(cx, cy, radius, startA, tiltAngle, true); ctx.stroke();
   }
 
-  // Ground line
-  figCtx.strokeStyle = '#2a2a50';
-  figCtx.lineWidth = 1;
-  figCtx.beginPath(); figCtx.moveTo(20, footY + 10); figCtx.lineTo(W - 20, footY + 10); figCtx.stroke();
-  figCtx.strokeStyle = color;
-  figCtx.lineWidth = lineW;
+  // Needle
+  const needleLen = radius * 0.85;
+  const nx = cx + Math.cos(tiltAngle) * needleLen;
+  const ny = cy + Math.sin(tiltAngle) * needleLen;
+  ctx.strokeStyle = '#e0e0ff';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(nx, ny); ctx.stroke();
+  // Needle dot
+  ctx.fillStyle = '#e0e0ff';
+  ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
 
-  // Legs
-  drawSeg(lAnkle, lKnee); drawSeg(lKnee, lHip);
-  drawSeg(rAnkle, rKnee); drawSeg(rKnee, rHip);
-  // Torso
-  drawSeg(hipMid, neck);
-  // Arms
-  drawSeg(lShoulder, lElbow); drawSeg(lElbow, lWrist);
-  drawSeg(rShoulder, rElbow); drawSeg(rElbow, rWrist);
+  // Labels
+  ctx.font = `${Math.max(10, radius * 0.14)}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#556';
+  ctx.fillText('0°', cx + radius + 14, cy + 4);
+  ctx.fillText(maxDeg + '°', cx - radius - 14, cy + 4);
 
-  // Joints
-  drawJoint(lAnkle); drawJoint(rAnkle);
-  drawJoint(lKnee); drawJoint(rKnee);
-  drawJoint(lHip); drawJoint(rHip);
-  drawJoint(hipMid);
-  drawJoint(lShoulder); drawJoint(rShoulder);
-  drawJoint(lElbow); drawJoint(rElbow);
-  drawJoint(neck);
+  // Current value (big, centered)
+  ctx.font = `bold ${Math.max(18, radius * 0.35)}px monospace`;
+  ctx.fillStyle = fillColor;
+  ctx.fillText(dispTilt.toFixed(1) + '°', cx, cy - radius * 0.15);
 
-  // Head
-  figCtx.beginPath();
-  figCtx.arc(head.x, head.y, headR, 0, Math.PI * 2);
-  figCtx.fillStyle = '#0d0d1a';
-  figCtx.fill();
-  figCtx.strokeStyle = color;
-  figCtx.lineWidth = lineW * 0.8;
-  figCtx.stroke();
-  figCtx.fillStyle = jointColor;
+  // Threshold tick marks
+  ctx.lineWidth = 1.5;
+  [SQUAT_EXIT_THRESHOLD, SQUAT_ENTER_THRESHOLD, MAX_TILT_THRESHOLD].forEach((deg, i) => {
+    const frac = deg / maxDeg;
+    const a = startA - frac * Math.PI;
+    const inner = radius - arcW * 0.6;
+    const outer = radius + arcW * 0.6;
+    ctx.strokeStyle = i === 2 ? '#ff4466aa' : i === 1 ? '#ff884488' : '#4acc7a88';
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
+    ctx.lineTo(cx + Math.cos(a) * outer, cy + Math.sin(a) * outer);
+    ctx.stroke();
+  });
+}
 
-  // Sensor indicator on torso
-  const sensorPos = {
-    x: (hipMid.x + neck.x) / 2,
-    y: (hipMid.y + neck.y) / 2
-  };
-  figCtx.fillStyle = '#4a8aff';
-  figCtx.beginPath(); figCtx.arc(sensorPos.x, sensorPos.y, 4 * scale, 0, Math.PI * 2); figCtx.fill();
-  figCtx.fillStyle = jointColor;
+// ── Balance gauge: horizontal bar, center = balanced, left/right = shift ──
+function drawBalanceGauge(ctx, W, H) {
+  ctx.clearRect(0, 0, W, H);
+
+  const cx = W / 2;
+  const cy = H / 2;
+  const barW = W * 0.8;
+  const barH = Math.max(16, H * 0.18);
+  const maxG = 0.4; // full scale ±0.4g
+
+  // Background track
+  const x0 = cx - barW / 2;
+  ctx.fillStyle = '#1a1a35';
+  ctx.beginPath();
+  ctx.roundRect(x0, cy - barH / 2, barW, barH, barH / 2);
+  ctx.fill();
+
+  // Threshold zones
+  const threshPx = (LATERAL_THRESHOLD / maxG) * (barW / 2);
+  // Left red zone
+  ctx.fillStyle = '#3a1a1a';
+  ctx.beginPath();
+  ctx.roundRect(x0, cy - barH / 2, barW / 2 - threshPx, barH, [barH / 2, 0, 0, barH / 2]);
+  ctx.fill();
+  // Right red zone
+  ctx.fillStyle = '#3a1a1a';
+  ctx.beginPath();
+  ctx.roundRect(cx + threshPx, cy - barH / 2, barW / 2 - threshPx, barH, [0, barH / 2, barH / 2, 0]);
+  ctx.fill();
+
+  // Threshold lines
+  ctx.strokeStyle = '#ff446688';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([3, 3]);
+  [-threshPx, threshPx].forEach(off => {
+    const tx = cx + off;
+    ctx.beginPath(); ctx.moveTo(tx, cy - barH * 0.7); ctx.lineTo(tx, cy + barH * 0.7); ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // Center line
+  ctx.strokeStyle = '#4acc7a44';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx, cy - barH * 0.6); ctx.lineTo(cx, cy + barH * 0.6); ctx.stroke();
+
+  // Indicator ball
+  const shift = Math.max(-maxG, Math.min(maxG, dispLateral));
+  const ballX = cx + (shift / maxG) * (barW / 2);
+  const ballR = barH * 0.55;
+  const isOver = Math.abs(dispLateral) > LATERAL_THRESHOLD;
+
+  // Glow
+  if (isOver) {
+    ctx.shadowColor = '#ff4466';
+    ctx.shadowBlur = 15;
+  }
+  ctx.fillStyle = isOver ? '#ff4466' : '#4acc7a';
+  ctx.beginPath(); ctx.arc(ballX, cy, ballR, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Ball highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.beginPath(); ctx.arc(ballX - ballR * 0.2, cy - ballR * 0.2, ballR * 0.35, 0, Math.PI * 2); ctx.fill();
+
+  // Labels
+  ctx.font = `${Math.max(10, barH * 0.6)}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = isOver ? '#ff6666' : '#888';
+  ctx.fillText(dispLateral.toFixed(3) + 'g', cx, cy + barH + Math.max(14, barH * 0.7));
+
+  // L / R labels
+  ctx.fillStyle = '#445';
+  ctx.font = `${Math.max(10, barH * 0.55)}px monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillText('L', x0 - 4, cy + 4);
+  ctx.textAlign = 'right';
+  ctx.fillText('R', x0 + barW + 4, cy + 4);
 }
 
 // ─── CHART DRAWING ────────────────────────────────────────────────────────────
@@ -806,29 +982,96 @@ function drawChart(ctx, buf, W, H, range, threshLines, markers, markerColors) {
   }
 }
 
+function drawTiltChart(ctx, buf, W, H, markers) {
+  const maxDeg = 60; // chart shows 0° (bottom) to 60° (top)
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid
+  ctx.strokeStyle = '#1a1a35';
+  ctx.lineWidth = 1;
+  for (let deg = 0; deg <= maxDeg; deg += 10) {
+    const y = H - (deg / maxDeg) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Max tilt (bad form) threshold line
+  const maxTiltY = H - (MAX_TILT_THRESHOLD / maxDeg) * H;
+  ctx.setLineDash([6, 3]);
+  ctx.strokeStyle = '#ff2244aa';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(0, maxTiltY); ctx.lineTo(W, maxTiltY); ctx.stroke();
+  ctx.lineWidth = 1;
+  // Enter threshold line
+  const enterY = H - (SQUAT_ENTER_THRESHOLD / maxDeg) * H;
+  ctx.strokeStyle = '#ff446688';
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(0, enterY); ctx.lineTo(W, enterY); ctx.stroke();
+  // Exit threshold line
+  const exitY = H - (SQUAT_EXIT_THRESHOLD / maxDeg) * H;
+  ctx.strokeStyle = '#4acc7a88';
+  ctx.beginPath(); ctx.moveTo(0, exitY); ctx.lineTo(W, exitY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Threshold labels
+  ctx.font = '10px monospace';
+  ctx.fillStyle = '#ff2244aa';
+  ctx.fillText('bad form ' + MAX_TILT_THRESHOLD + '°', W - 82, maxTiltY - 3);
+  ctx.fillStyle = '#ff446688';
+  ctx.fillText('enter ' + SQUAT_ENTER_THRESHOLD + '°', W - 58, enterY - 3);
+  ctx.fillStyle = '#4acc7a88';
+  ctx.fillText('exit ' + SQUAT_EXIT_THRESHOLD + '°', W - 50, exitY - 3);
+
+  // Fill "bad form" zone above max tilt threshold
+  ctx.fillStyle = 'rgba(255,34,68,0.08)';
+  ctx.fillRect(0, 0, W, maxTiltY);
+  // Fill "in squat" zone between enter and max tilt
+  ctx.fillStyle = 'rgba(255,70,70,0.03)';
+  ctx.fillRect(0, maxTiltY, W, enterY - maxTiltY);
+
+  // Signal line
+  ctx.strokeStyle = '#4acc7a';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < CHART_LEN; i++) {
+    const x = (i / (CHART_LEN - 1)) * W;
+    const y = H - (Math.min(buf[i], maxDeg) / maxDeg) * H;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Markers
+  if (markers) {
+    for (const m of markers) {
+      const x = (m.idx / (CHART_LEN - 1)) * W;
+      const y = H - (Math.min(buf[m.idx], maxDeg) / maxDeg) * H;
+      ctx.fillStyle = m.type === 'peak' ? '#4acc7a' : '#ff4466';
+      ctx.beginPath();
+      if (m.type === 'peak') {
+        ctx.moveTo(x, y - 8); ctx.lineTo(x - 5, y); ctx.lineTo(x + 5, y);
+      } else {
+        ctx.moveTo(x, y + 8); ctx.lineTo(x - 5, y); ctx.lineTo(x + 5, y);
+      }
+      ctx.fill();
+    }
+  }
+}
+
 // ─── RESIZE HANDLER ───────────────────────────────────────────────────────────
 function resize() {
   const dpr = window.devicePixelRatio || 1;
 
-  // Figure canvas
-  const fw = figCanvas.parentElement.clientWidth;
-  const fh = figCanvas.clientHeight || figCanvas.parentElement.clientHeight - document.getElementById('rep-display').offsetHeight;
-  figCanvas.width = fw * dpr;
-  figCanvas.height = fh * dpr;
-  figCtx.scale(dpr, dpr);
-  figCanvas.style.width = fw + 'px';
-  figCanvas.style.height = fh + 'px';
-
-  // Chart canvases
-  [vertCanvas, latCanvas].forEach(c => {
+  // Gauge canvases
+  [tiltCanvas, balCanvas, vertCanvas, latCanvas].forEach(c => {
     const parent = c.parentElement;
     const w = parent.clientWidth;
     const h = parent.clientHeight;
-    c.width = w * dpr;
-    c.height = h * dpr;
-    c.getContext('2d').scale(dpr, dpr);
-    c.style.width = w + 'px';
-    c.style.height = h + 'px';
+    if (w > 0 && h > 0) {
+      c.width = w * dpr;
+      c.height = h * dpr;
+      c.style.width = w + 'px';
+      c.style.height = h + 'px';
+      c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
   });
 }
 
@@ -836,21 +1079,27 @@ function resize() {
 function animate() {
   requestAnimationFrame(animate);
 
-  // Resize if needed (cheap check)
-  if (figCanvas.width === 0) resize();
+  if (tiltCanvas.width === 0) resize();
 
-  const fw = parseInt(figCanvas.style.width) || 300;
-  const fh = parseInt(figCanvas.style.height) || 400;
-  figCtx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
-  drawFigure();
+  const dpr = window.devicePixelRatio || 1;
 
+  // Tilt gauge
+  const tw = parseInt(tiltCanvas.style.width) || 300;
+  const th = parseInt(tiltCanvas.style.height) || 150;
+  tiltCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawTiltGauge(tiltCtx, tw, th);
+
+  // Balance gauge
+  const bw = parseInt(balCanvas.style.width) || 300;
+  const bh = parseInt(balCanvas.style.height) || 100;
+  balCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawBalanceGauge(balCtx, bw, bh);
+
+  // Charts
   const vw = parseInt(vertCanvas.style.width) || 300;
   const vh = parseInt(vertCanvas.style.height) || 150;
-  const dpr = window.devicePixelRatio || 1;
   vertCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawChart(vertCtx, vertBuf, vw, vh, 0.8,
-    [{ val: TROUGH_THRESHOLD, color: '#ff446666' }, { val: PEAK_THRESHOLD, color: '#4acc7a66' }],
-    vertMarkers);
+  drawTiltChart(vertCtx, vertBuf, vw, vh, vertMarkers);
 
   const lw = parseInt(latCanvas.style.width) || 300;
   const lh = parseInt(latCanvas.style.height) || 150;
@@ -938,6 +1187,7 @@ document.getElementById('disconnectBtn').onclick = async () => {
 document.getElementById('calibBtn').onclick = () => {
   roll = 0; pitch = 0;
   filteredVert = 0; filteredLat = 0;
+  document.getElementById('sessionBtn').disabled = true;
   resetCalib();
 };
 
@@ -949,9 +1199,10 @@ document.getElementById('sessionBtn').onclick = () => {
     repLog.length = 0;
     document.getElementById('log-body').innerHTML = '';
     document.getElementById('rep-count').textContent = '0';
-    troughDetected = false;
-    currentTroughMag = 0;
+    inSquat = false;
+    maxTiltInRep = 0;
     currentLatMax = 0;
+    currentLatDir = 0;
     document.getElementById('sessionBtn').textContent = '⏹ End Session';
     document.getElementById('sessionBtn').classList.add('active');
   } else {
@@ -972,28 +1223,130 @@ function showSummary() {
   const secs = dur % 60;
   document.getElementById('sum-reps').textContent = repCount;
 
-  // Average depth
   if (repLog.length) {
     const counts = { Shallow: 0, Parallel: 0, Deep: 0 };
-    let maxLat = 0;
-    let flagCount = 0;
+    let maxLat = 0, maxLean = 0, flagCount = 0, badCount = 0;
     for (const r of repLog) {
       counts[r.depth]++;
       if (r.latFlag) flagCount++;
+      if (r.bad) badCount++;
       const mag = parseFloat(r.latMag);
       if (mag > maxLat) maxLat = mag;
+      if (r.maxTilt > maxLean) maxLean = r.maxTilt;
     }
     const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    document.getElementById('sum-good').textContent = repCount - badCount;
+    document.getElementById('sum-bad').textContent = badCount;
     document.getElementById('sum-depth').textContent = best;
     document.getElementById('sum-flags').textContent = flagCount;
     document.getElementById('sum-maxlat').textContent = maxLat.toFixed(3) + ' g';
+    document.getElementById('sum-maxlean').textContent = maxLean.toFixed(1) + '°';
   } else {
+    document.getElementById('sum-good').textContent = '0';
+    document.getElementById('sum-bad').textContent = '0';
     document.getElementById('sum-depth').textContent = '—';
     document.getElementById('sum-flags').textContent = '0';
     document.getElementById('sum-maxlat').textContent = '—';
+    document.getElementById('sum-maxlean').textContent = '—';
   }
   document.getElementById('sum-dur').textContent = `${mins}m ${String(secs).padStart(2, '0')}s`;
+
+  // ── Generate AI coaching summary via Grok ──
+  document.getElementById('sum-coaching').innerHTML = '<h3>AI Coach Summary</h3><p style="color:#888;text-align:center">Generating analysis...</p>';
   document.getElementById('summary-overlay').classList.add('show');
+  generateCoaching();
+}
+
+const GROK_API_KEY = 'xai-SkganhJuTba106n8L3h7Nj7Q03ovf4SNC6G46gqAUKNJvjIZ9IhT3mKCaT9ELTN8PsZERKQAGVOFOZqo';
+
+async function generateCoaching() {
+  const el = document.getElementById('sum-coaching');
+
+  if (!repLog.length) {
+    el.innerHTML = '<h3>AI Coach</h3><p style="color:#888;text-align:center">No reps recorded this session.</p>';
+    return;
+  }
+
+  // Build session data for the prompt
+  const total = repLog.length;
+  const badCount = repLog.filter(r => r.bad).length;
+  const goodCount = total - badCount;
+
+  const counts = { Shallow: 0, Parallel: 0, Deep: 0 };
+  let maxLat = 0, maxLean = 0, latFlagCount = 0, tiltFlagCount = 0;
+  const repDetails = [];
+  for (let i = 0; i < repLog.length; i++) {
+    const r = repLog[i];
+    counts[r.depth]++;
+    const mag = parseFloat(r.latMag);
+    if (mag > maxLat) maxLat = mag;
+    if (r.maxTilt > maxLean) maxLean = r.maxTilt;
+    if (r.latFlag) latFlagCount++;
+    if (r.tiltFlag) tiltFlagCount++;
+    repDetails.push(`Rep ${i+1}: depth=${r.depth}, lateral=${r.latDir} (${r.latMag}g), max_tilt=${r.maxTilt.toFixed(1)}°, form=${r.bad ? 'BAD (' + r.reasons.join(', ') + ')' : 'Good'}`);
+  }
+
+  const sessionData = `
+SQUAT SESSION DATA:
+- Total reps: ${total}
+- Good reps: ${goodCount}, Bad reps: ${badCount}
+- Depth breakdown: ${counts.Shallow} shallow, ${counts.Parallel} parallel, ${counts.Deep} deep
+- Lateral imbalance flags: ${latFlagCount} (threshold: ${LATERAL_THRESHOLD}g)
+- Excessive lean flags: ${tiltFlagCount} (threshold: ${MAX_TILT_THRESHOLD}°)
+- Max lateral deviation: ${maxLat.toFixed(3)}g
+- Max forward lean: ${maxLean.toFixed(1)}°
+
+PER-REP BREAKDOWN:
+${repDetails.join('\n')}
+`.trim();
+
+  const prompt = `You are an expert strength coach AI embedded in a smart fabric squat tracker. Analyze this squat session and provide a brief, personalized coaching summary.
+
+${sessionData}
+
+Respond in this exact format (use HTML tags as shown):
+
+<span class="pos"><b>What you did well:</b></span>
+<ul><li>2-4 specific positives based on the data</li></ul>
+
+<span class="neg"><b>Areas to improve:</b></span>
+<ul><li>1-3 specific, actionable improvements with cues (only if relevant)</li></ul>
+
+Keep it conversational and encouraging, like a real coach talking after a set. Be specific — reference actual numbers from the data. Keep each bullet to 1-2 sentences max.
+
+IMPORTANT: End your response with exactly this line:
+<span class="goal">Based on the data from your last week, you should get to your goal of a 4,000 lb squat PR in no time! Keep pushing.</span>`;
+
+  try {
+    const resp = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROK_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'grok-3-mini-fast',
+        messages: [
+          { role: 'system', content: 'You are a concise, encouraging strength coach. Output only HTML fragments as instructed. No markdown, no code fences.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`API ${resp.status}: ${err}`);
+    }
+
+    const data = await resp.json();
+    const content = data.choices[0].message.content.trim();
+    el.innerHTML = '<h3>AI Coach Summary</h3>' + content;
+  } catch (e) {
+    console.error('Grok API error:', e);
+    el.innerHTML = '<h3>AI Coach Summary</h3><p style="color:#ff6666">Could not generate summary: ' + e.message + '</p>';
+  }
 }
 
 document.getElementById('sum-close').onclick = () => {
